@@ -1,0 +1,64 @@
+{
+  "schema_version": "0.1",
+  "run_id": "2026-08-29-drive-saved-tools",
+  "adapter": {
+    "kind": "agent",
+    "name": "assistant with a cloud-drive connector",
+    "version": null
+  },
+  "source": {
+    "service": "google-drive",
+    "location": "/Saved/AI tools",
+    "account_hint": "personal account",
+    "collected_by": "assistant, at the owner's request"
+  },
+  "collected": "2026-08-29",
+  "note": "Everything in the folder from the last three months. Looking for anything that helps with the audit offer or the publication.",
+  "files": [
+    {
+      "path": "IMG_4102.PNG",
+      "input_type": "screenshot",
+      "origin": "unknown, saved from a social app",
+      "captured": "2026-07-14",
+      "group_hint": "grp-4102-4104",
+      "note": "First of three consecutive screenshots, likely one carousel."
+    },
+    {
+      "path": "IMG_4103.PNG",
+      "input_type": "screenshot",
+      "origin": "unknown, saved from a social app",
+      "captured": "2026-07-14",
+      "group_hint": "grp-4102-4104"
+    },
+    {
+      "path": "IMG_4104.PNG",
+      "input_type": "screenshot",
+      "origin": "unknown, saved from a social app",
+      "captured": "2026-07-14",
+      "group_hint": "grp-4102-4104"
+    },
+    {
+      "path": "vendor-brief.pdf",
+      "input_type": "pdf",
+      "origin": "emailed by a vendor",
+      "captured": "2026-08-02"
+    },
+    {
+      "path": "links.txt",
+      "input_type": "url-list",
+      "origin": "pasted from a notes app",
+      "captured": null,
+      "note": "Eleven URLs, mixed quality."
+    }
+  ],
+  "not_retrieved": [
+    {
+      "identifier": "Screen Recording 2026-08-11.mov",
+      "reason": "Video is not a supported input type in this version."
+    },
+    {
+      "identifier": "shared/Q3-roadmap.gdoc",
+      "reason": "Owned by another account and not shared with the collecting identity."
+    }
+  ]
+}

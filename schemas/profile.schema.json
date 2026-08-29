@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chrisbrock.io/schemas/cyft/profile.schema.json",
+  "title": "Cyft operator profile",
+  "description": "What the user is trying to do, what they can operate, and what they will not accept. Nothing can be scored without this.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "owner", "updated", "goals", "constraints", "vetoes"],
+  "properties": {
+    "schema_version": { "type": "string", "enum": ["0.1"] },
+    "owner": { "type": "string" },
+    "updated": { "type": "string", "format": "date" },
+    "entities": {
+      "description": "Distinct contexts the owner operates in. An item can be good and still belong to a different entity.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "owns"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "owns": { "type": "string", "description": "What subject matter belongs to this entity." },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "goals": {
+      "description": "Stated objectives. An item is only relevant relative to one of these.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "statement", "entity", "horizon", "success_looks_like"],
+        "properties": {
+          "id": { "type": "string" },
+          "statement": { "type": "string", "minLength": 10 },
+          "entity": { "type": "string" },
+          "horizon": { "type": "string", "enum": ["now", "quarter", "year", "someday"] },
+          "success_looks_like": { "type": "string", "description": "Observable, so an item can be judged against it." },
+          "kill_criteria": { "type": "string", "description": "What would end this goal. A goal with no kill criteria absorbs everything." },
+          "active": { "type": "boolean" }
+        }
+      }
+    },
+    "capabilities": {
+      "description": "What the owner can actually operate. Fit is scored against this, not against ambition.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stack": { "type": "array", "items": { "type": "string" } },
+        "already_provisioned": { "type": "array", "items": { "type": "string" }, "description": "Paid for and connected. Reusing these is nearly free; adding a new one is not." },
+        "operating_hours_per_week": { "type": "number", "minimum": 0 },
+        "can_self_host": { "type": "boolean" },
+        "has_on_call": { "type": "boolean" }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["budget_posture", "risk_posture"],
+      "properties": {
+        "budget_posture": { "type": "string", "enum": ["free-only", "cheap-experiments", "will-pay-for-proven", "unconstrained"] },
+        "risk_posture": { "type": "string", "enum": ["conservative", "measured", "aggressive"] },
+        "license_requirements": { "type": "array", "items": { "type": "string" }, "description": "For example: must permit commercial resale, must permit publishing derived research." },
+        "data_boundaries": { "type": "array", "items": { "type": "string" }, "description": "What must never leave a boundary, and whose data it is." },
+        "excluded_subjects": { "type": "array", "items": { "type": "string" }, "description": "Subject matter that belongs to another entity and is out of scope regardless of merit." }
+      }
+    },
+    "vetoes": {
+      "description": "Absolute. A veto is never outscored by a high total.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "condition"],
+        "properties": {
+          "id": { "type": "string" },
+          "condition": { "type": "string" },
+          "rationale": { "type": "string" }
+        }
+      }
+    },
+    "weights": {
+      "description": "Optional. Relative importance of each scoring dimension. Defaults are equal.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "relevance": { "type": "number" },
+        "evidence": { "type": "number" },
+        "effort": { "type": "number" },
+        "risk": { "type": "number" },
+        "fit": { "type": "number" },
+        "timing": { "type": "number" }
+      }
+    }
+  }
+}

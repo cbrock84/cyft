@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chrisbrock.io/schemas/cyft/intake-manifest.schema.json",
+  "title": "Cyft intake manifest",
+  "description": "Written by an adapter alongside the files it collected. This is the entire integration surface: anything that can write this file and some bytes is an adapter. Origin fields are claims by the adapter, recorded as provenance and not treated as verified.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "adapter", "collected", "files"],
+  "properties": {
+    "schema_version": { "type": "string", "enum": ["0.1"] },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Unique per collection run. A date plus a short source label reads well."
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["folder", "archive", "agent", "paste", "url-list", "email", "browser-extension", "other"]
+        },
+        "name": { "type": "string", "description": "What produced this. An assistant name, a script name, a person." },
+        "version": { "type": ["string", "null"] }
+      }
+    },
+    "source": {
+      "description": "Where the adapter says the material came from. Provenance, not verification.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "type": "string",
+          "enum": ["google-drive", "dropbox", "onedrive", "box", "notion", "local", "web", "email", "other"]
+        },
+        "location": { "type": "string", "description": "Folder path or label. Do not put a credential, token, or signed URL here." },
+        "account_hint": { "type": "string", "description": "A non-secret hint such as a masked address, only if it helps the owner tell two accounts apart." },
+        "collected_by": { "type": "string", "description": "Human or assistant that ran the collection." }
+      }
+    },
+    "collected": { "type": "string", "format": "date" },
+    "note": { "type": "string", "description": "Free text from the person who ran it. Why this batch, what they were looking for." },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "input_type"],
+        "properties": {
+          "path": { "type": "string", "description": "Relative to the manifest. Must not escape the manifest directory." },
+          "input_type": {
+            "type": "string",
+            "enum": ["screenshot", "photo", "pdf", "url", "url-list", "snippet", "note", "repo-ref", "archive", "unknown"]
+          },
+          "origin": { "type": "string", "description": "Where this specific file came from: an account handle, a sender, a source URL." },
+          "captured": { "type": ["string", "null"], "format": "date", "description": "When the original was created, if known. Distinct from when it was collected." },
+          "group_hint": { "type": "string", "description": "Set when the adapter knows several files came from one post or document. Saves the dedupe stage guessing." },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "not_retrieved": {
+      "description": "What the adapter could not collect. Reporting a gap is required: a silently shorter list is the failure mode this field exists to prevent.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["identifier", "reason"],
+        "properties": {
+          "identifier": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+# Local runs. Nothing a person collected belongs in version control.
+inbox/
+items/
+library/
+rejected/
+digests/
+profile.json
+
+# Environment
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Never
+*.env
+.env*
+*.pem
+*.key
+credentials*
+secrets*

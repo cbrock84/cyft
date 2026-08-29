@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chrisbrock.io/schemas/cyft/claim.schema.json",
+  "title": "Cyft claim set",
+  "description": "Every assertion attached to an item, with its label and its source. The gap between claimed and verified is the point.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "item_id", "claims"],
+  "properties": {
+    "schema_version": { "type": "string", "enum": ["0.1"] },
+    "item_id": { "type": "string" },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "assertion", "label", "source", "recorded"],
+        "properties": {
+          "id": { "type": "string" },
+          "assertion": { "type": "string", "minLength": 10 },
+          "label": {
+            "type": "string",
+            "enum": ["claimed", "verified", "tested", "adopted", "rejected", "inferred", "uncertain"]
+          },
+          "source": { "type": "string", "description": "URL, file path, or a description of the reproducible observation." },
+          "source_kind": { "type": "string", "enum": ["capture", "repository", "license", "official-docs", "pricing-page", "filing", "standard", "reproducible-observation", "third-party-report", "analyst-judgment"] },
+          "recorded": { "type": "string", "format": "date" },
+          "as_of": { "type": ["string", "null"], "format": "date", "description": "For values that move: star counts, prices, plan tiers." },
+          "contradicts": { "type": "array", "items": { "type": "string" }, "description": "Other claim ids this one conflicts with. Contradictions are recorded, never averaged." },
+          "revalidate_after_days": { "type": ["integer", "null"], "minimum": 1 }
+        }
+      }
+    }
+  }
+}

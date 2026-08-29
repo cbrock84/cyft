@@ -1,0 +1,79 @@
+{
+  "schema_version": "0.1",
+  "owner": "example-operator",
+  "updated": "2026-08-29",
+  "entities": [
+    { "id": "personal", "label": "Me, personally", "owns": "Writing, opinions, career, personal systems." },
+    { "id": "llc", "label": "My one-person company", "owns": "General software, consulting offers, media, consumer products." },
+    { "id": "employer", "label": "Day job", "owns": "Everything about the employer's systems, data, and vendors. Out of scope here.", "notes": "Present in the profile so items can be routed away from the personal backlog, not so they can be worked on." }
+  ],
+  "goals": [
+    {
+      "id": "revenue-1",
+      "statement": "Sell three fixed-scope diagnostic engagements to small B2B software companies.",
+      "entity": "llc",
+      "horizon": "quarter",
+      "success_looks_like": "Three paid orders from fifty individually researched prospects.",
+      "kill_criteria": "Fifty qualified, personalized contacts produce no paid order and no strong implementation opportunity.",
+      "active": true
+    },
+    {
+      "id": "publish-1",
+      "statement": "Publish evidence-led writing on a sustainable cadence.",
+      "entity": "personal",
+      "horizon": "quarter",
+      "success_looks_like": "Six issues shipped, median production time trending down, at least one attributable conversation.",
+      "kill_criteria": "Four issues produce no subscribers, replies, or conversations worth having.",
+      "active": true
+    },
+    {
+      "id": "efficiency-1",
+      "statement": "Run a weekly read-only review of money in and money out.",
+      "entity": "personal",
+      "horizon": "quarter",
+      "success_looks_like": "Six consecutive weekly reviews, each surfacing at least one thing worth acting on.",
+      "kill_criteria": "The review is skipped three weeks running.",
+      "active": true
+    },
+    {
+      "id": "engineering-1",
+      "statement": "Establish whether AI coding assistance actually lowers total reviewed delivery cost.",
+      "entity": "personal",
+      "horizon": "quarter",
+      "success_looks_like": "One tool measured against a baseline on a bounded task, with review minutes recorded.",
+      "kill_criteria": "No measurable difference after two bounded tests.",
+      "active": true
+    }
+  ],
+  "capabilities": {
+    "stack": ["Python", "TypeScript", "Postgres", "static hosting"],
+    "already_provisioned": ["payments", "transactional email", "static hosting", "CRM", "SEO tooling"],
+    "operating_hours_per_week": 8,
+    "can_self_host": true,
+    "has_on_call": false
+  },
+  "constraints": {
+    "budget_posture": "cheap-experiments",
+    "risk_posture": "measured",
+    "license_requirements": [
+      "Must permit commercial use for anything sold.",
+      "Must permit publishing research derived from it, for anything that feeds writing."
+    ],
+    "data_boundaries": [
+      "No employer data leaves employer systems.",
+      "No customer personal data in any experiment.",
+      "No credentials in any tool that has not had a security review."
+    ],
+    "excluded_subjects": [
+      "Compliance and governance product intellectual property, which belongs to a separate company."
+    ]
+  },
+  "vetoes": [
+    { "id": "no-lawful-path", "condition": "There is no lawful and terms-compliant way to use it.", "rationale": "Nothing downstream matters." },
+    { "id": "credential-exposure", "condition": "Requires handing credentials or customer data to something unreviewed.", "rationale": "The downside is unbounded and not recoverable." },
+    { "id": "license-mismatch", "condition": "The license bars the use the goal requires, including publishing derived work.", "rationale": "Found late, this invalidates finished work." },
+    { "id": "no-exit", "condition": "Holds data with no export and no rollback.", "rationale": "A trial you cannot leave is not a trial." },
+    { "id": "claims-only-economics", "condition": "The economic case rests entirely on unverified claims.", "rationale": "Frequency across accounts is not corroboration." }
+  ],
+  "weights": { "relevance": 1.5, "evidence": 1.2, "effort": 1.0, "risk": 1.2, "fit": 1.0, "timing": 0.8 }
+}

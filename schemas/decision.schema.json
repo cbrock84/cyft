@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chrisbrock.io/schemas/cyft/decision.schema.json",
+  "title": "Cyft decision",
+  "description": "How one item scored against one profile, and where it was routed. Scores are meaningless without the profile they were computed against.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "item_id", "profile_ref", "scored", "per_goal", "route", "reason", "decided_by"],
+  "properties": {
+    "schema_version": { "type": "string", "enum": ["0.1"] },
+    "item_id": { "type": "string" },
+    "profile_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "profile_updated"],
+      "properties": {
+        "owner": { "type": "string" },
+        "profile_updated": { "type": "string", "format": "date", "description": "Which version of the profile this was scored against. A profile change invalidates the score." }
+      }
+    },
+    "scored": { "type": "string", "format": "date" },
+    "vetoed_by": {
+      "type": ["string", "null"],
+      "description": "Veto id, if any. A veto short-circuits scoring; a high score does not survive it."
+    },
+    "per_goal": {
+      "description": "One entry per goal the item was scored against. An item can be strong for one goal and irrelevant to another.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["goal_id", "relevance", "evidence", "effort", "risk", "fit", "timing"],
+        "properties": {
+          "goal_id": { "type": "string" },
+          "relevance": { "type": "integer", "minimum": 0, "maximum": 5 },
+          "evidence": { "type": "integer", "minimum": 0, "maximum": 5 },
+          "effort": { "type": "integer", "minimum": 0, "maximum": 5, "description": "5 means cheap. Inverted so every dimension points the same way." },
+          "risk": { "type": "integer", "minimum": 0, "maximum": 5, "description": "5 means low risk. Inverted for the same reason." },
+          "fit": { "type": "integer", "minimum": 0, "maximum": 5 },
+          "timing": { "type": "integer", "minimum": 0, "maximum": 5 },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "route": {
+      "type": "string",
+      "enum": ["act", "test", "watch", "reference", "reject", "not-mine"]
+    },
+    "reason": { "type": "string", "minLength": 10, "description": "Why this route. For reject, name the gate it failed." },
+    "first_step": { "type": ["string", "null"], "description": "Required for act and test." },
+    "measure": { "type": ["string", "null"], "description": "What a test would measure. Required for test." },
+    "kill_date": { "type": ["string", "null"], "format": "date" },
+    "promote_when": { "type": ["string", "null"], "description": "Required for watch. The specific condition that would move it up." },
+    "reassign_to": { "type": ["string", "null"], "description": "Required for not-mine. Which entity or owner it belongs to." },
+    "decided_by": { "type": "string", "enum": ["human", "proposed"], "description": "proposed means the tool drafted it and no person has accepted it yet. Only a human moves an item to act." },
+    "superseded_by": { "type": ["string", "null"] }
+  }
+}
