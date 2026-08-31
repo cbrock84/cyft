@@ -209,12 +209,22 @@ contribution, which matters when the intended audience works inside companies.
 
 ## Status
 
-Blueprint. Schemas and a worked example are in this directory. There is no implementation
-yet, and one should not be started before the method has been run by hand often enough to
-know which parts are real.
+Early. There is a working command line tool covering the whole loop: intake, deduplication,
+reading with a model, scoring against your profile, routing, and digests. See
+[`USAGE.md`](USAGE.md).
+
+```
+pip install cyft[anthropic]
+cyft init
+cyft add ~/Desktop/screenshots
+```
+
+Everything except `cyft read` is deterministic and needs no model, no key, and no network.
+Reading uses whichever provider you configure, with your own key.
 
 The method itself has been run once, by hand, over a backlog of 158 saved items. That run
-is the reason this exists as a design rather than a hypothesis.
+is the reason this exists as a design rather than a hypothesis. The scoring questions and
+the routing table are the parts most likely to change once more people run it.
 
 ## Open questions
 

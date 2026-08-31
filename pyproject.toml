@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cyft"
+version = "0.1.0"
+description = "Decide whether the things you save are useful to you, given what you are actually trying to do"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+keywords = ["triage", "backlog", "llm", "evaluation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Topic :: Utilities",
+]
+dependencies = []
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=1.0"]
+openai = ["openai>=1.0"]
+all = ["anthropic>=1.0", "openai>=1.0"]
+
+[project.scripts]
+cyft = "cyft.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/cbrock84/cyft"
+Source = "https://github.com/cbrock84/cyft"
+
+[tool.setuptools.packages.find]
+include = ["cyft*"]
