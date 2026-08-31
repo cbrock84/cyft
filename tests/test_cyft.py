@@ -63,10 +63,30 @@ class TestIntake(Base):
         self.assertEqual(len(store.list_items(self.root)), 2)
 
     def test_url_file_expands_to_one_item_per_link(self):
-        path = self.write("links.url", "https://one.example\nhttps://two.example\n")
-        intake.add_file(self.root, path)
+        self.write("links.url", "https://one.example\nhttps://two.example\n")
+        added, dupes = intake.add_paths(self.root, [os.path.join(self.root, "_src")])
+        self.assertEqual((added, dupes), (2, 0))
         kinds = sorted(i["kind"] for i in store.list_items(self.root))
         self.assertEqual(kinds, ["url", "url"])
+
+    def test_re_adding_a_link_file_reports_the_duplicates(self):
+        self.write("links.url", "https://one.example\nhttps://two.example\n")
+        src = os.path.join(self.root, "_src")
+        intake.add_paths(self.root, [src])
+        self.assertEqual(intake.add_paths(self.root, [src]), (0, 2))
+        self.assertEqual(len(store.list_items(self.root)), 2)
+
+    def test_link_file_with_no_links_is_kept_as_text(self):
+        self.write("notes.url", "just a note, no links here\n")
+        added, dupes = intake.add_paths(self.root, [os.path.join(self.root, "_src")])
+        self.assertEqual((added, dupes), (1, 0))
+        self.assertEqual(store.list_items(self.root)[0]["kind"], "text")
+
+    def test_add_file_always_returns_one_item(self):
+        path = self.write("links.url", "https://solo.example\n")
+        item, is_new = intake.add_file(self.root, path)
+        self.assertIsInstance(item, dict)
+        self.assertTrue(is_new)
 
     def test_image_keeps_its_bytes_and_media_type(self):
         png = self.write("shot.png", b"\x89PNG\r\n\x1a\nnot-a-real-png", mode="wb")

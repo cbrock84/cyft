@@ -101,18 +101,9 @@ def add_file(root, path):
     item = _blank_item(store.new_id(digest), digest, kind, os.path.basename(path))
     ext = os.path.splitext(path)[1].lower()
 
-    if kind == "text":
-        item["text"] = data.decode("utf-8", "replace")[:20000]
-    elif kind == "urllist":
-        found = urls_in(data.decode("utf-8", "replace"))
-        if found:
-            # A file of links expands into one item per link, not one item.
-            added = []
-            for url in found:
-                rec, is_new = add_url(root, url)
-                if is_new:
-                    added.append(rec)
-            return added, len(added)
+    if kind in ("text", "urllist"):
+        # A link file with links in it is expanded by add_urllist, not here, so
+        # anything reaching this point is treated as ordinary text.
         item["text"] = data.decode("utf-8", "replace")[:20000]
         item["kind"] = "text"
     elif kind == "image":
@@ -124,6 +115,26 @@ def add_file(root, path):
         with open(dest, "wb") as fh:
             fh.write(data)
     return item, True
+
+
+def add_urllist(root, path):
+    """Expand a link file into one item per link.
+
+    Returns (added, dupes, expanded). `expanded` is False when the file held no
+    links, so the caller can fall back to storing it as text.
+    """
+    with open(path, "rb") as fh:
+        found = urls_in(fh.read().decode("utf-8", "replace"))
+    if not found:
+        return 0, 0, False
+    added = dupes = 0
+    for url in found:
+        _, is_new = add_url(root, url)
+        if is_new:
+            added += 1
+        else:
+            dupes += 1
+    return added, dupes, True
 
 
 def walk(paths):
@@ -143,10 +154,13 @@ def walk(paths):
 def add_paths(root, paths):
     added = dupes = 0
     for path in walk(paths):
-        result, is_new = add_file(root, path)
-        if isinstance(result, list):
-            added += is_new
-            continue
+        if classify(path) == "urllist":
+            a, d, expanded = add_urllist(root, path)
+            if expanded:
+                added += a
+                dupes += d
+                continue
+        _, is_new = add_file(root, path)
         if is_new:
             added += 1
         else:
