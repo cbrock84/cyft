@@ -67,6 +67,23 @@ cyft list
 cyft digest --mark
 ```
 
+### Files Cyft refuses to take in
+
+Cyft copies what it takes in, and `cyft read` sends text to a model provider, so
+pointing it at a project folder must not put a private key on the wire. Files
+that look like credentials are left alone and named, rather than silently
+skipped:
+
+- `.pem`, `.key`, `.p12`, `.pfx`, `.jks`, `.keystore`, `.ppk`, `.asc`, `.gpg`
+- `id_rsa` and its relatives, `credentials`, `secrets.*`, `service-account*.json`
+- anything starting `.env`
+- anything inside `.ssh`, `.gnupg`, `.aws`, `.kube`, `.docker` or `gcloud`
+
+This applies to an explicit `cyft add ./deploy.pem` as much as to a swept folder.
+There is no flag to override it. If you genuinely need a file of this shape read,
+copy it somewhere under a different name and take responsibility for that
+deliberately.
+
 `add` takes files, folders, or URLs. Identical files merge on a content hash and
 links merge on a normalised URL, so the same repository saved four times is one
 item. A `.url` file expands into one item per link.

@@ -128,16 +128,25 @@ def cmd_add(args):
         return 2
 
     added = dupes = 0
+    skipped = []
     for url in urls:
         _, is_new = intake.add_url(root, url)
         added += 1 if is_new else 0
         dupes += 0 if is_new else 1
     if paths:
-        a, d = intake.add_paths(root, paths)
+        a, d = intake.add_paths(root, paths, on_skip=lambda p, why: skipped.append((p, why)))
         added += a
         dupes += d
 
     out("%d added, %d already in the pile" % (added, dupes))
+    if skipped:
+        out("")
+        out("%d file(s) left alone, because Cyft copies what it takes in and sends" % len(skipped))
+        out("text to a model when you run read:")
+        for path, reason in skipped[:12]:
+            out("  %-44s %s" % (os.path.basename(path)[:44], reason))
+        if len(skipped) > 12:
+            out("  and %d more" % (len(skipped) - 12))
     pending = [i for i in store.list_items(root) if i.get("status") == "new"]
     if pending:
         out("%d waiting to be read. Next: cyft read" % len(pending))

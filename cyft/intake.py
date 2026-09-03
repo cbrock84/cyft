@@ -9,6 +9,19 @@ import os
 from . import store
 
 TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".log", ".rst"}
+
+# Files that are almost certainly credentials. Cyft copies what it takes in and,
+# on `cyft read`, sends the text to a model provider. Sweeping a project folder
+# must not put a private key on the wire, so these are refused and named.
+SECRET_EXT = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".ppk", ".asc", ".gpg"}
+SECRET_NAMES = {
+    "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials", "credentials.json",
+    "netrc", "pgpass", "htpasswd", "secrets.json", "secrets.yaml", "secrets.yml",
+    "keyfile", "keystore",
+}
+SECRET_PREFIXES = ("id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "service-account",
+                   "serviceaccount", "gcp-key", "aws-credentials")
+SECRET_DIRS = {".ssh", ".gnupg", ".aws", ".kube", ".docker", "gcloud"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 URLLIST_EXT = {".url", ".webloc", ".urls"}
 SKIP_NAMES = {".DS_Store", "Thumbs.db"}
@@ -17,6 +30,34 @@ MEDIA_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".gif": "image/gif", ".webp": "image/webp",
 }
+
+
+def looks_like_secret(path):
+    """Return why this file should not be taken in, or None if it is ordinary.
+
+    Deliberately conservative about what it names: a false positive costs one
+    skipped file and a printed reason, while a false negative can put a private
+    key into a request body.
+    """
+    name = os.path.basename(path)
+    lower = name.lower()
+    stem, ext = os.path.splitext(lower)
+
+    parts = os.path.normpath(path).split(os.sep)
+    for part in parts[:-1]:
+        if part.lower() in SECRET_DIRS:
+            return "it is inside %s" % part
+
+    if ext in SECRET_EXT:
+        return "%s files hold keys or certificates" % ext
+    if lower in SECRET_NAMES or stem in SECRET_NAMES:
+        return "%s is a credential file" % name
+    if lower.startswith(".env"):
+        return "dotenv files hold secrets"
+    for prefix in SECRET_PREFIXES:
+        if lower.startswith(prefix):
+            return "%s looks like a key or service account" % name
+    return None
 
 
 def classify(path):
@@ -151,9 +192,20 @@ def walk(paths):
                 yield os.path.join(dirpath, name)
 
 
-def add_paths(root, paths):
+def add_paths(root, paths, on_skip=None):
+    """Add everything under `paths`, returning (added, duplicates).
+
+    Files that look like credentials are never taken in. `on_skip`, when given,
+    is called with (path, reason) for each one, so a caller can report them. The
+    return shape is unchanged so existing callers keep working.
+    """
     added = dupes = 0
     for path in walk(paths):
+        reason = looks_like_secret(path)
+        if reason:
+            if on_skip is not None:
+                on_skip(path, reason)
+            continue
         if classify(path) == "urllist":
             a, d, expanded = add_urllist(root, path)
             if expanded:
