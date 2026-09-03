@@ -6,7 +6,7 @@ a normalised URL for links, so the same repository saved four times is one item.
 
 import os
 
-from . import store
+from . import pdftext, store
 
 TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".log", ".rst"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -106,6 +106,11 @@ def add_file(root, path):
         # anything reaching this point is treated as ordinary text.
         item["text"] = data.decode("utf-8", "replace")[:20000]
         item["kind"] = "text"
+    elif kind == "pdf":
+        # Best effort. An empty result means the text could not be trusted, which
+        # is recorded rather than papered over, so the reading stage can say so.
+        item["text"] = pdftext.extract(data)
+        item["text_source"] = "pdf-extract" if item["text"] else "none"
     elif kind == "image":
         item["media_type"] = MEDIA_TYPES.get(ext, "image/png")
 

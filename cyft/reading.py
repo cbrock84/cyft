@@ -72,8 +72,11 @@ def blocks_for(root, item):
         parts.append("URL: %s" % item["url"])
     if item.get("text"):
         parts.append("Text of the item:\n%s" % item["text"][:6000])
-    if item["kind"] == "pdf":
-        parts.append("This is a PDF. Only its filename is available here.")
+    if item["kind"] == "pdf" and not item.get("text"):
+        parts.append(
+            "This is a PDF whose text could not be extracted. It may be a scan. "
+            "Only the filename above is available, so say what you can and label "
+            "everything uncertain.")
     blocks.append(text_block("\n".join(parts)))
     return blocks
 
