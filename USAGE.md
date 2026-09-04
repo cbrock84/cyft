@@ -119,3 +119,52 @@ provider's current rates before running a large batch, and start with `--limit`.
 ```
 cyft read --limit 5
 ```
+
+## Using it from your assistant instead
+
+Cyft can run as an MCP server, which is the path that needs no API key at all.
+Instead of Cyft calling a model, the assistant you already use calls Cyft: it
+asks for the next item, is handed the screenshot, and hands back what it found.
+
+Claude Desktop, in `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "cyft": {
+      "command": "cyft",
+      "args": ["--root", "/absolute/path/to/your/.cyft", "mcp"]
+    }
+  }
+}
+```
+
+Claude Code:
+
+```
+claude mcp add cyft -- cyft --root /absolute/path/to/your/.cyft mcp
+```
+
+Use an absolute `--root`. The server is started by your client in a working
+directory you do not control, so a relative path will not find your run store.
+
+Then say something like: *work through my cyft pile.* The eight tools are
+
+| Tool | What it does |
+| --- | --- |
+| `cyft_status` | Counts by status and route, plus the goals |
+| `cyft_profile` | The full profile |
+| `cyft_add` | Add files, folders or URLs |
+| `cyft_next_unread` | The next item, with the screenshot attached |
+| `cyft_record_reading` | Store what it is and what is claimed |
+| `cyft_next_undecided` | The next item awaiting a decision, with its claims |
+| `cyft_decide` | Give goal, help and cost; Cyft computes the route |
+| `cyft_digest` | What changed |
+
+Two things hold here as everywhere else. Item content reaches your assistant
+wrapped in a warning that it is data to describe and not instruction to follow,
+and nothing an item says can set its own route. Routes are computed from your
+answers, and a dealbreaker outranks any score.
+
+Decisions made this way are recorded with `decided_by: "mcp-client"`, so you can
+tell later which judgements were yours and which your assistant's.
