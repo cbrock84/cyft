@@ -443,6 +443,29 @@ class TestMcp(Base):
     def test_add_rejects_a_bad_argument(self):
         self.assertTrue(self.call("cyft_add", {"targets": "not a list"})["result"]["isError"])
 
+    def test_add_tells_the_assistant_what_it_refused(self):
+        src = os.path.join(self.root, "_src")
+        os.makedirs(src)
+        open(os.path.join(src, "notes.md"), "w").write("# a real note about a tool")
+        open(os.path.join(src, "deploy.pem"), "w").write("-----BEGIN RSA PRIVATE KEY-----")
+        open(os.path.join(src, "id_rsa"), "w").write("key material")
+
+        body = self.body(self.call("cyft_add", {"targets": [src]}))
+        self.assertIn("1 added", body)
+        self.assertIn("2 file(s) were left alone", body)
+        self.assertIn("deploy.pem", body)
+        self.assertIn("id_rsa", body)
+        # and it must not invite the assistant to route around the refusal
+        self.assertIn("Do not work around it", body)
+
+    def test_add_stays_quiet_when_nothing_was_refused(self):
+        src = os.path.join(self.root, "_src")
+        os.makedirs(src)
+        open(os.path.join(src, "notes.md"), "w").write("# a real note about a tool")
+        body = self.body(self.call("cyft_add", {"targets": [src]}))
+        self.assertIn("1 added", body)
+        self.assertNotIn("left alone", body)
+
     def test_next_unread_carries_the_untrusted_warning(self):
         self.call("cyft_add", {"targets": ["https://a.example"]})
         body = self.body(self.call("cyft_next_unread"))
