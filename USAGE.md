@@ -91,6 +91,11 @@ item. A `.url` file expands into one item per link.
 `read` sends each new item to the model and records what it is and what is
 claimed, each claim labelled `verified`, `claimed`, `inferred` or `uncertain`.
 
+PDF text is extracted at intake with no external dependency. It is best effort:
+a scanned PDF has no text to find, and unusual font encodings can defeat it.
+When the result does not survive grading it is recorded as unreadable rather
+than passed on as though it were text, and the reading prompt says so.
+
 `sort` asks three questions per item, suggests a route with its reasoning, and
 lets you override it. Dealbreakers override the score entirely.
 

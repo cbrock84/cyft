@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cyft import config, digest, intake, mcp, reading, scoring, store
+from cyft import config, digest, intake, mcp, pdftext, reading, scoring, store
 
 
 PROFILE = {
@@ -103,6 +103,80 @@ class TestIntake(Base):
         shutil.rmtree(os.path.join(self.root, "items"))
         second, _ = intake.add_file(self.root, a)
         self.assertEqual(first["id"], second["id"])
+
+
+def make_pdf(body_text):
+    """A minimal PDF with one Flate-compressed content stream."""
+    import zlib
+    body = b"BT /F1 12 Tf (" + body_text + b") Tj ET"
+    return b"%PDF-1.4\nstream\n" + zlib.compress(body) + b"\nendstream\n"
+
+
+class TestPdfText(Base):
+    LONG = (b"The quick brown fox jumps over the lazy dog, repeatedly and at "
+            b"considerable length so that the grader has something to work with.")
+
+    def test_extracts_from_a_compressed_content_stream(self):
+        got = pdftext.extract(make_pdf(self.LONG))
+        self.assertIn("quick brown fox", got)
+
+    def test_strings_are_joined_without_inserted_separators(self):
+        # A PDF splits words for kerning. Joining with spaces would break dates.
+        import zlib
+        body = b"BT /F1 12 Tf [(December )-2(18, )-2(2023)] TJ (. " + self.LONG + b") Tj ET"
+        pdf = b"%PDF-1.4\nstream\n" + zlib.compress(body) + b"\nendstream\n"
+        self.assertIn("December 18, 2023", pdftext.extract(pdf))
+
+    def test_rejects_things_that_are_not_readable(self):
+        for blob in (b"", os.urandom(3000), b"\x89PNG\r\n\x1a\n" + b"\x00" * 400,
+                     b"plain text, no streams here"):
+            self.assertEqual(pdftext.extract(blob), "")
+
+    def test_rejects_a_stream_too_short_to_judge(self):
+        self.assertEqual(pdftext.extract(make_pdf(b"hi")), "")
+
+    def test_ignores_streams_that_are_not_content(self):
+        import zlib
+        pdf = (b"%PDF-1.4\nstream\n" + zlib.compress(b"(FontName) (Metadata)")
+               + b"\nendstream\n")
+        self.assertEqual(pdftext.extract(pdf), "")
+
+    def test_respects_the_limit(self):
+        got = pdftext.extract(make_pdf(self.LONG * 40), limit=200)
+        self.assertLessEqual(len(got), 200)
+
+    def test_grading_thresholds(self):
+        self.assertFalse(pdftext.looks_like_text("short"))
+        self.assertFalse(pdftext.looks_like_text("1234567890" * 10))   # no letters
+        self.assertTrue(pdftext.looks_like_text("a sentence of ordinary readable words " * 3))
+
+    def test_intake_stores_extracted_pdf_text(self):
+        path = self.write("doc.pdf", make_pdf(self.LONG), mode="wb")
+        item, _ = intake.add_file(self.root, path)
+        self.assertEqual(item["kind"], "pdf")
+        self.assertIn("quick brown fox", item["text"])
+        self.assertEqual(item["text_source"], "pdf-extract")
+
+    def test_unreadable_pdf_is_recorded_as_such(self):
+        path = self.write("scan.pdf", b"%PDF-1.4\n" + os.urandom(2000), mode="wb")
+        item, _ = intake.add_file(self.root, path)
+        self.assertEqual(item["text"], "")
+        self.assertEqual(item["text_source"], "none")
+
+    def test_reading_prompt_says_when_a_pdf_could_not_be_read(self):
+        path = self.write("scan2.pdf", b"%PDF-1.4\n" + os.urandom(2000), mode="wb")
+        item, _ = intake.add_file(self.root, path)
+        blocks = reading.blocks_for(self.root, item)
+        text = " ".join(b["text"] for b in blocks if b["type"] == "text")
+        self.assertIn("could not be extracted", text)
+
+    def test_readable_pdf_prompt_carries_the_text_not_the_apology(self):
+        path = self.write("good.pdf", make_pdf(self.LONG), mode="wb")
+        item, _ = intake.add_file(self.root, path)
+        blocks = reading.blocks_for(self.root, item)
+        text = " ".join(b["text"] for b in blocks if b["type"] == "text")
+        self.assertIn("quick brown fox", text)
+        self.assertNotIn("could not be extracted", text)
 
 
 class TestSecretFiles(Base):
