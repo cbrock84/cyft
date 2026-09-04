@@ -1,0 +1,88 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run the suite
+        run: python -m unittest discover -s tests -v
+
+  no-dependencies:
+    name: core runs with no provider SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install without extras
+        run: pip install .
+
+      - name: Fail if anything was pulled in
+        run: |
+          python - <<'PY'
+          import importlib, sys
+          for name in ("anthropic", "openai", "httpx", "pydantic", "requests"):
+              try:
+                  importlib.import_module(name)
+              except ImportError:
+                  continue
+              sys.exit("%s is installed. The core is meant to have no dependencies." % name)
+          print("no third-party packages present")
+          PY
+
+      - name: The offline half of the tool must work anyway
+        run: |
+          set -e
+          mkdir -p /tmp/run && cd /tmp/run
+          cyft init
+          python - <<'PY'
+          import json
+          p = ".cyft/profile.json"
+          d = json.load(open(p))
+          d["goals"][0].update(name="Ship the thing", why="it is the quarter's only bet")
+          json.dump(d, open(p, "w"), indent=2)
+          PY
+          printf 'https://example.com/a\nhttps://example.com/a/\n' > links.url
+          cyft add links.url
+          cyft add links.url
+          cyft list
+          cyft digest
+
+      - name: Reading must fail with a clear message, not a traceback
+        run: |
+          cd /tmp/run
+          if cyft read; then echo "expected a non-zero exit"; exit 1; fi
+          cyft read 2>&1 | grep -q "not installed" || { echo "unhelpful error"; exit 1; }
+          echo "clear error confirmed"
+
+  package:
+    name: builds and installs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - name: Install the wheel and run it
+        run: |
+          pip install dist/*.whl
+          cyft --help

@@ -5,7 +5,8 @@ so it is specified before anything else.
 
 ## The one rule
 
-**Cyft never holds your credentials and never reaches out to a service.**
+**Cyft holds no credentials for the places your material lives, and never reaches out to
+them.**
 
 Adapters bring bytes to Cyft. Cyft does not go and get them.
 
@@ -16,6 +17,24 @@ your attention. It would also violate the `credential-exposure` veto that ships 
 example profile, which would be an odd way to start.
 
 So the integration surface is one JSON file.
+
+### The one exception, stated plainly
+
+`cyft read` sends one item at a time to the model provider you configure, using one API key
+you supply. An earlier version of this file said Cyft never holds your credentials at all.
+That is no longer true and the wording above is narrower because of it.
+
+What is still true, and is the part that matters:
+
+- The key is read from an environment variable you name. It is never written to
+  `config.json`, which is created mode 0600 and warns if others can read it.
+- It is sent to that provider and nowhere else.
+- It is the only credential Cyft touches. There are no tokens for Drive, Dropbox, or
+  anything else your material came from.
+- Every other command runs offline. Intake, deduplication, scoring, routing and digests
+  make no network calls, and work with no key and no provider SDK installed.
+
+If you never run `cyft read`, Cyft never opens a socket.
 
 ## The contract
 

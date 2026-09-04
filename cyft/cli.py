@@ -7,6 +7,7 @@
     cyft sort                 score and route, one item at a time
     cyft list                 what is where, and why
     cyft digest               what changed since last time
+    cyft mcp                  serve over stdio, so your assistant does the reading
 """
 
 import argparse
@@ -128,16 +129,25 @@ def cmd_add(args):
         return 2
 
     added = dupes = 0
+    skipped = []
     for url in urls:
         _, is_new = intake.add_url(root, url)
         added += 1 if is_new else 0
         dupes += 0 if is_new else 1
     if paths:
-        a, d = intake.add_paths(root, paths)
+        a, d = intake.add_paths(root, paths, on_skip=lambda p, why: skipped.append((p, why)))
         added += a
         dupes += d
 
     out("%d added, %d already in the pile" % (added, dupes))
+    if skipped:
+        out("")
+        out("%d file(s) left alone, because Cyft copies what it takes in and sends" % len(skipped))
+        out("text to a model when you run read:")
+        for path, reason in skipped[:12]:
+            out("  %-44s %s" % (os.path.basename(path)[:44], reason))
+        if len(skipped) > 12:
+            out("  and %d more" % (len(skipped) - 12))
     pending = [i for i in store.list_items(root) if i.get("status") == "new"]
     if pending:
         out("%d waiting to be read. Next: cyft read" % len(pending))
@@ -281,6 +291,15 @@ def cmd_digest(args):
     return 0
 
 
+def cmd_mcp(args):
+    """Speak MCP on stdio so the assistant you already use does the reading.
+
+    Nothing may go to stdout but protocol messages, so this prints no banner.
+    """
+    from . import mcp
+    return mcp.serve(resolve_root(args))
+
+
 # ------------------------------------------------------------------- prompts
 
 def _ask(prompt):
@@ -369,6 +388,9 @@ def build_parser():
     s = sub.add_parser("list", help="show decisions")
     s.add_argument("--route", choices=list(scoring.ROUTES))
     s.set_defaults(func=cmd_list)
+
+    s = sub.add_parser("mcp", help="run as an MCP server over stdio")
+    s.set_defaults(func=cmd_mcp)
 
     s = sub.add_parser("digest", help="what changed since last time")
     s.add_argument("--all", action="store_true", help="everything, not just what is new")
