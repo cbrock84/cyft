@@ -104,6 +104,87 @@ class TestIntake(Base):
         self.assertEqual(first["id"], second["id"])
 
 
+class TestSecretFiles(Base):
+    """Cyft copies what it takes in and, on read, sends text to a provider.
+    Sweeping a project folder must not put a key on the wire."""
+
+    SECRETS = [
+        "deploy.pem", "server.key", "bundle.p12", "cert.pfx", "store.jks",
+        "id_rsa", "id_rsa.pub", "id_ed25519", "service-account.json",
+        "serviceaccount-prod.json", "credentials", "credentials.json",
+        "secrets.yaml", "secrets.json", ".env", ".env.production", "keystore",
+    ]
+    ORDINARY = [
+        "notes.md", "screenshot.png", "pricing.pdf", "readme.txt", "data.csv",
+        "keynote-summary.md", "environment-notes.md", "monkey.png",
+    ]
+
+    def test_credential_names_are_refused_with_a_reason(self):
+        for name in self.SECRETS:
+            reason = intake.looks_like_secret("/some/project/" + name)
+            self.assertTrue(reason, "%s should be refused" % name)
+            self.assertIsInstance(reason, str)
+
+    def test_ordinary_files_are_not_refused(self):
+        for name in self.ORDINARY:
+            self.assertIsNone(intake.looks_like_secret("/some/project/" + name),
+                              "%s should be allowed" % name)
+
+    def test_credential_directories_are_refused(self):
+        for path in ("/home/u/.ssh/known_hosts", "/home/u/.aws/config",
+                     "/home/u/.gnupg/pubring.kbx", "/home/u/.kube/config"):
+            self.assertTrue(intake.looks_like_secret(path), path)
+
+    def test_a_swept_folder_leaves_secrets_behind(self):
+        src = os.path.join(self.root, "_src")
+        os.makedirs(src)
+        open(os.path.join(src, "notes.md"), "w").write("# A real note about a tool")
+        open(os.path.join(src, "deploy.pem"), "w").write("-----BEGIN RSA PRIVATE KEY-----")
+        open(os.path.join(src, "service-account.json"), "w").write('{"private_key":"x"}')
+        open(os.path.join(src, "id_rsa"), "w").write("ssh-key-material")
+
+        skipped = []
+        added, dupes = intake.add_paths(self.root, [src],
+                                        on_skip=lambda p, w: skipped.append((p, w)))
+        self.assertEqual(added, 1)
+        self.assertEqual(sorted(os.path.basename(p) for p, _ in skipped),
+                         ["deploy.pem", "id_rsa", "service-account.json"])
+
+        names = [i["name"] for i in store.list_items(self.root)]
+        self.assertEqual(names, ["notes.md"])
+
+    def test_no_secret_material_reaches_the_store(self):
+        src = os.path.join(self.root, "_src")
+        os.makedirs(src)
+        open(os.path.join(src, "service-account.json"), "w").write(
+            '{"private_key":"-----BEGIN PRIVATE KEY-----abcdef"}')
+        open(os.path.join(src, "deploy.pem"), "w").write(
+            "-----BEGIN RSA PRIVATE KEY-----MIIEowIBAAKC")
+        intake.add_paths(self.root, [src])
+
+        leaked = []
+        for dirpath, _, filenames in os.walk(os.path.join(self.root, "items")):
+            for name in filenames:
+                with open(os.path.join(dirpath, name), "rb") as fh:
+                    blob = fh.read()
+                if b"PRIVATE KEY" in blob or b"private_key" in blob:
+                    leaked.append(os.path.join(dirpath, name))
+        self.assertEqual(leaked, [], "secret material was copied into the run store")
+
+    def test_on_skip_is_optional(self):
+        src = os.path.join(self.root, "_src")
+        os.makedirs(src)
+        open(os.path.join(src, "id_rsa"), "w").write("x")
+        self.assertEqual(intake.add_paths(self.root, [src]), (0, 0))
+
+    def test_add_paths_still_returns_two_values(self):
+        src = os.path.join(self.root, "_src")
+        os.makedirs(src)
+        open(os.path.join(src, "a.md"), "w").write("hello there, a note")
+        added, dupes = intake.add_paths(self.root, [src])
+        self.assertEqual((added, dupes), (1, 0))
+
+
 class TestRouting(Base):
     def item(self, **kw):
         base = {"goal": "g1", "help": "", "cost": "", "vetoes": []}
