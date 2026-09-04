@@ -107,17 +107,30 @@ def tool_add(root, args):
         return _fail("Not found: %s" % ", ".join(missing))
 
     added = dupes = 0
+    skipped = []
     for url in urls:
         _, is_new = intake.add_url(root, url)
         added += 1 if is_new else 0
         dupes += 0 if is_new else 1
     if paths:
-        a, d = intake.add_paths(root, paths)
+        a, d = intake.add_paths(
+            root, paths, on_skip=lambda path, why: skipped.append((path, why)))
         added += a
         dupes += d
     pending = len([i for i in store.list_items(root) if i.get("status") == "new"])
-    return _text("%d added, %d already in the pile. %d waiting to be read."
-                 % (added, dupes, pending))
+
+    body = "%d added, %d already in the pile. %d waiting to be read." % (added, dupes, pending)
+    if skipped:
+        # Say what was withheld. An assistant told only "3 added" for a folder of
+        # five files has no way to tell a refusal from a bug, and may go looking.
+        body += "\n\n%d file(s) were left alone because they look like credentials:" % len(skipped)
+        for path, reason in skipped[:12]:
+            body += "\n  %s: %s" % (os.path.basename(path), reason)
+        if len(skipped) > 12:
+            body += "\n  and %d more" % (len(skipped) - 12)
+        body += ("\n\nThis is deliberate and there is no override. Do not work around it "
+                 "by reading these files yourself and adding their contents.")
+    return _text(body)
 
 
 def tool_next_unread(root, args):
