@@ -106,8 +106,9 @@ Accepts screenshots and photos, PDFs, URLs, plain text and Markdown snippets, ar
 direct repository references. Records the source, the capture date, and a content hash. The
 hash is what makes step 3 possible.
 
-**Cyft never holds your credentials and never reaches out to a service.** Adapters bring
-bytes to it. Drop a zip of a hundred screenshots, point it at a folder, or ask the
+**Cyft holds no credentials for the places your material lives, and never reaches out to
+them.** Adapters bring bytes to it. (`cyft read` is the one exception: it sends items to a
+model provider using one key you supply. See [`intake.md`](intake.md).) Drop a zip of a hundred screenshots, point it at a folder, or ask the
 assistant that already has a connector to your cloud drive to collect a folder and write a
 manifest. The entire integration surface is one JSON file, so anything that can write files
 is an adapter.
