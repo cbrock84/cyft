@@ -29,7 +29,8 @@ likely to be skipped.
 ## Less useful
 
 - Dependencies in the core. It is Python 3 standard library only, deliberately, and CI
-  fails if that changes. Provider SDKs are optional extras, imported lazily.
+  fails on any dependency declared outside an extra. Provider SDKs are optional extras,
+  imported lazily.
 - Integrations that hold credentials for the places your material lives. This is a
   deliberate boundary, not an oversight. See `intake.md` and `SECURITY.md`.
 - A global ranking of tools. There is no global user, so there is no such ranking.
