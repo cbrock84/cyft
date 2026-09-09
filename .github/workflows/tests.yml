@@ -34,7 +34,27 @@ jobs:
       - name: Install without extras
         run: pip install .
 
-      - name: Fail if anything was pulled in
+      - name: Fail if the core declares any dependency
+        run: |
+          python - <<'PY'
+          import sys
+          from importlib.metadata import requires
+
+          # Anything without an `extra ==` marker is a core dependency. Naming
+          # packages here instead would only catch the ones we thought of.
+          core = []
+          for req in requires("cyft") or []:
+              marker = req.split(";", 1)[1] if ";" in req else ""
+              if "extra ==" not in marker:
+                  core.append(req.strip())
+          if core:
+              sys.exit("core dependencies are declared: %s\n"
+                       "The core is meant to be the standard library only. Put it under "
+                       "[project.optional-dependencies] and import it lazily." % ", ".join(core))
+          print("no core dependencies declared")
+          PY
+
+      - name: Fail if a provider SDK got pulled in anyway
         run: |
           python - <<'PY'
           import importlib, sys
@@ -43,8 +63,8 @@ jobs:
                   importlib.import_module(name)
               except ImportError:
                   continue
-              sys.exit("%s is installed. The core is meant to have no dependencies." % name)
-          print("no third-party packages present")
+              sys.exit("%s is installed. Installing without extras must not bring it in." % name)
+          print("no provider SDK present")
           PY
 
       - name: The offline half of the tool must work anyway
