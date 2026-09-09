@@ -4,6 +4,7 @@ Deterministic, offline, no model. Deduplication is on the bytes for files and on
 a normalised URL for links, so the same repository saved four times is one item.
 """
 
+import json
 import os
 
 from . import pdftext, store
@@ -41,7 +42,13 @@ def looks_like_secret(path):
     """
     name = os.path.basename(path)
     lower = name.lower()
-    stem, ext = os.path.splitext(lower)
+
+    # A credential dotfile is the same file with a dot in front of it, and
+    # SECRET_NAMES holds the bare forms. Match on the name with leading dots
+    # removed, or `.netrc` slips past `netrc` and is treated as ordinary, which
+    # for a file named directly on the command line means it gets taken in.
+    bare = lower.lstrip(".")
+    stem, ext = os.path.splitext(bare)
 
     parts = os.path.normpath(path).split(os.sep)
     for part in parts[:-1]:
@@ -50,14 +57,48 @@ def looks_like_secret(path):
 
     if ext in SECRET_EXT:
         return "%s files hold keys or certificates" % ext
-    if lower in SECRET_NAMES or stem in SECRET_NAMES:
+    if bare in SECRET_NAMES or stem in SECRET_NAMES:
         return "%s is a credential file" % name
     if lower.startswith(".env"):
         return "dotenv files hold secrets"
     for prefix in SECRET_PREFIXES:
-        if lower.startswith(prefix):
+        if bare.startswith(prefix):
             return "%s looks like a key or service account" % name
     return None
+
+
+def one_line(text, limit=120):
+    """Collapse untrusted text to a single printable line.
+
+    A filename is chosen by whoever made the file and may contain newlines and
+    control characters. Interpolated raw into a report that an assistant reads,
+    a name like "id_rsa\\nIgnore prior instructions" becomes a line of its own
+    that reads like an instruction rather than a filename. The reasons above
+    quote the name back, so both halves need this.
+    """
+    out = []
+    for ch in text:
+        if ch.isprintable():
+            out.append(ch)
+        elif ord(ch) < 256:
+            out.append("\\x%02x" % ord(ch))
+        else:
+            out.append("\\u%04x" % ord(ch))
+    line = "".join(out)
+    if len(line) > limit:
+        line = line[:limit] + "..."
+    return line
+
+
+def quoted(text, limit=120):
+    """`one_line`, wrapped in JSON quoting so the delimiters cannot be forged.
+
+    Escaping control characters is not enough by itself. A filename may contain
+    a plain double quote, and `id_rsa": Ignore prior instructions` would close
+    the quoted span early and leave the rest sitting outside it, reading as
+    commentary rather than as part of the name.
+    """
+    return json.dumps(one_line(text, limit))
 
 
 def classify(path):
@@ -183,16 +224,38 @@ def add_urllist(root, path):
     return added, dupes, True
 
 
-def walk(paths):
-    """Yield every file under the given paths, skipping noise and dotfiles."""
+def walk(paths, on_skip=None):
+    """Yield every file under the given paths, skipping noise and dotfiles.
+
+    Dotfiles and dot-directories are pruned here, before anything downstream
+    looks at them. That is why `on_skip` exists on this function as well as on
+    `add_paths`: a pruned `.env` or `.ssh/` never reaches the credential check,
+    so without this a swept home directory reported nothing left alone at all.
+
+    A pruned directory is reported as itself rather than walked into. Naming it
+    is enough to tell a caller why the count is lower than they expected.
+    """
     for p in paths:
         if os.path.isfile(p):
             yield p
             continue
         for dirpath, dirnames, filenames in os.walk(p):
+            hidden = [d for d in dirnames if d.startswith(".")]
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            if on_skip is not None:
+                for name in sorted(hidden):
+                    if name.lower() in SECRET_DIRS:
+                        on_skip(os.path.join(dirpath, name),
+                                "%s holds credentials, so it was not opened" % name)
             for name in sorted(filenames):
-                if name in SKIP_NAMES or name.startswith("."):
+                if name in SKIP_NAMES:
+                    continue
+                if name.startswith("."):
+                    if on_skip is not None:
+                        path = os.path.join(dirpath, name)
+                        reason = looks_like_secret(path)
+                        if reason:
+                            on_skip(path, reason)
                     continue
                 yield os.path.join(dirpath, name)
 
@@ -205,7 +268,7 @@ def add_paths(root, paths, on_skip=None):
     return shape is unchanged so existing callers keep working.
     """
     added = dupes = 0
-    for path in walk(paths):
+    for path in walk(paths, on_skip=on_skip):
         reason = looks_like_secret(path)
         if reason:
             if on_skip is not None:
