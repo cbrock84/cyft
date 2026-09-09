@@ -147,8 +147,8 @@ def cmd_add(args):
         for path, reason in skipped[:12]:
             # A filename is untrusted text and can carry newlines or terminal
             # escapes. Render it on one line, printable only.
-            name = intake.one_line(os.path.basename(path), 44)
-            out("  %-44s %s" % (name, intake.one_line(reason)))
+            out("  %-46s %s" % (intake.quoted(os.path.basename(path), 44),
+                                intake.quoted(reason)))
         if len(skipped) > 12:
             out("  and %d more" % (len(skipped) - 12))
     pending = [i for i in store.list_items(root) if i.get("status") == "new"]
