@@ -1,13 +1,13 @@
 # Contributing
 
-This is a design document at the moment, not an implementation. That shapes what is
-useful to contribute.
+There is a working command line tool, and a method behind it that has been run over one
+real backlog. That shapes what is useful to contribute.
 
 ## Most useful right now
 
-**Run the method by hand and tell me where it broke.** The pipeline has been run once,
-over one person's backlog. Everything in `README.md` is a hypothesis with exactly one
-data point behind it. A second honest account of using it is worth more than code.
+**Run it against your own pile and tell me where it broke.** The scoring questions and the
+routing table came out of one person's backlog of 158 items, so they have exactly one data
+point behind them. A second honest account of using it is worth more than a feature.
 
 The open questions at the end of `README.md` are the ones I actually cannot answer.
 The profile step is the weakest: writing down what you are genuinely trying to do this
@@ -23,13 +23,15 @@ likely to be skipped.
   templates could quietly become the generic ranking this project exists to avoid.
 - Schema problems. If a schema cannot express something real you encountered, that is
   a bug in the design.
+- A provider. Everything except Anthropic speaks the OpenAI wire format, so a new one is
+  usually a base URL and a model name rather than new code.
 
 ## Less useful
 
-- An implementation, before the method has been run enough times to know which stages
-  are real. Building now freezes guesses as architecture.
-- Integrations that hold credentials. This is a deliberate boundary, not an oversight.
-  See `intake.md`.
+- Dependencies in the core. It is Python 3 standard library only, deliberately, and CI
+  fails if that changes. Provider SDKs are optional extras, imported lazily.
+- Integrations that hold credentials for the places your material lives. This is a
+  deliberate boundary, not an oversight. See `intake.md` and `SECURITY.md`.
 - A global ranking of tools. There is no global user, so there is no such ranking.
 
 ## Ground rules
