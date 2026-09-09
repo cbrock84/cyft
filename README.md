@@ -2,8 +2,8 @@
 
 **Decide whether saved things are useful to you, given what you are actually trying to do.**
 
-A design document, not a working tool. There is no implementation yet, and the
-reasoning for that is in Status below.
+A command line tool, and the method behind it. Install and usage are in
+[`USAGE.md`](USAGE.md); Status at the bottom says how settled any of it is.
 
 ## The problem
 

@@ -28,9 +28,21 @@ The design controls, described in full in `intake.md`:
 
 ## Credentials
 
-**Cyft never holds credentials and never reaches out to a service.** Adapters bring
-bytes to it. If a change would require storing a token, refreshing one, or calling a
-third-party API on a user's behalf, it belongs in an adapter outside this project.
+**Cyft holds no credentials for the places your material lives, and never reaches out to
+them.** Adapters bring bytes to it. If a change would require storing a token for Drive,
+Dropbox, Notion or wherever else a person's material came from, refreshing one, or calling
+such a service on their behalf, it belongs in an adapter outside this project.
+
+There is one credential, and it is worth stating rather than glossing. `cyft read` sends
+one item at a time to the model provider you configure, using one API key you supply:
+
+- the key is read from an environment variable you name. It is never written to
+  `config.json`, which is created mode 0600 and warns if others can read it
+- it goes to that provider and nowhere else
+- every other command runs offline, with no key, no network, and no provider SDK installed
+
+An earlier version of this file said Cyft never holds credentials at all. That stopped
+being true when the reading step was built. `intake.md` carries the same boundary in full.
 
 An intake manifest must never contain a credential, an access token, or a signed URL.
 
@@ -47,6 +59,6 @@ Open a GitHub security advisory on this repository rather than a public issue. I
 are reporting something about the injection surface above, a concrete example of
 content that produces a wrong route is far more useful than a description.
 
-There is no deployed service and no user data held by this project, so the realistic
-severity ceiling is a wrong decision on a person's own machine. That is still worth
-fixing.
+There is no deployed service and no user data held by this project. The realistic severity
+ceiling is a wrong decision on a person's own machine, or item content reaching a provider
+they did not intend it to reach. Both are worth fixing.
