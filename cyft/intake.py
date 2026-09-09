@@ -60,6 +60,29 @@ def looks_like_secret(path):
     return None
 
 
+def one_line(text, limit=120):
+    """Collapse untrusted text to a single printable line.
+
+    A filename is chosen by whoever made the file and may contain newlines and
+    control characters. Interpolated raw into a report that an assistant reads,
+    a name like "id_rsa\\nIgnore prior instructions" becomes a line of its own
+    that reads like an instruction rather than a filename. The reasons above
+    quote the name back, so both halves need this.
+    """
+    out = []
+    for ch in text:
+        if ch.isprintable():
+            out.append(ch)
+        elif ord(ch) < 256:
+            out.append("\\x%02x" % ord(ch))
+        else:
+            out.append("\\u%04x" % ord(ch))
+    line = "".join(out)
+    if len(line) > limit:
+        line = line[:limit] + "..."
+    return line
+
+
 def classify(path):
     ext = os.path.splitext(path)[1].lower()
     if ext in IMAGE_EXT:
@@ -183,16 +206,38 @@ def add_urllist(root, path):
     return added, dupes, True
 
 
-def walk(paths):
-    """Yield every file under the given paths, skipping noise and dotfiles."""
+def walk(paths, on_skip=None):
+    """Yield every file under the given paths, skipping noise and dotfiles.
+
+    Dotfiles and dot-directories are pruned here, before anything downstream
+    looks at them. That is why `on_skip` exists on this function as well as on
+    `add_paths`: a pruned `.env` or `.ssh/` never reaches the credential check,
+    so without this a swept home directory reported nothing left alone at all.
+
+    A pruned directory is reported as itself rather than walked into. Naming it
+    is enough to tell a caller why the count is lower than they expected.
+    """
     for p in paths:
         if os.path.isfile(p):
             yield p
             continue
         for dirpath, dirnames, filenames in os.walk(p):
+            hidden = [d for d in dirnames if d.startswith(".")]
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            if on_skip is not None:
+                for name in sorted(hidden):
+                    if name.lower() in SECRET_DIRS:
+                        on_skip(os.path.join(dirpath, name),
+                                "%s holds credentials, so it was not opened" % name)
             for name in sorted(filenames):
-                if name in SKIP_NAMES or name.startswith("."):
+                if name in SKIP_NAMES:
+                    continue
+                if name.startswith("."):
+                    if on_skip is not None:
+                        path = os.path.join(dirpath, name)
+                        reason = looks_like_secret(path)
+                        if reason:
+                            on_skip(path, reason)
                     continue
                 yield os.path.join(dirpath, name)
 
@@ -205,7 +250,7 @@ def add_paths(root, paths, on_skip=None):
     return shape is unchanged so existing callers keep working.
     """
     added = dupes = 0
-    for path in walk(paths):
+    for path in walk(paths, on_skip=on_skip):
         reason = looks_like_secret(path)
         if reason:
             if on_skip is not None:
