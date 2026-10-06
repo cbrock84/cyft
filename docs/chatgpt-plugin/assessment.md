@@ -15,7 +15,7 @@ Read-only. Checkout: `cbrock84/cyft` main at `9c07e34` (after PR #6). Docs read 
 | Eight local stdio MCP tools | Working, stdio only | `cyft/mcp.py:300-420`; newline JSON-RPC, protocol `2025-06-18`. No HTTP, no auth, one store set by `--root` |
 | File hashing + URL dedup | Working, with gaps | SHA-256 of bytes `intake.py:172-180`; `normalise_url` `intake.py:117-127` |
 | Goal routing | Working, simpler than documented | `scoring.py:32-63`: goal + help (lot/some/little) + cost (hour/day/week) + 5 vetoes |
-| Incremental digest | Working, with gaps | `digest.py:209-236`, watermark in `state.json`, set by `cyft_digest mark=true` `mcp.py:279-288` |
+| Incremental digest | Working, with gaps | `digest.py:12-39`, watermark in `state.json`, set by `cyft_digest mark=true` `mcp.py:279-288` |
 | Host-assistant reading | Working | `cyft_next_unread` / `cyft_record_reading` `mcp.py:139-197`; screenshot sent inline as base64 |
 | Optional provider reading | Working | `cyft/providers/`, lazily imported; `cyft read` |
 | PDF text | Working, best effort | stdlib extractor `pdftext.py`; no OCR |
@@ -30,11 +30,11 @@ Read-only. Checkout: `cbrock84/cyft` main at `9c07e34` (after PR #6). Docs read 
 ## 2. The four suspected gaps
 
 1. **Profile editing: confirmed.** `cyft_profile` is read-only (`mcp.py:92-96`). A profile only exists after `cyft init` plus hand-editing JSON. No create/update tool.
-2. **Claim evidence: confirmed.** Claims are `{text, label}` only (`reading.py:347-360`). No evidence URL, no checked date. `verified` is accepted on the assistant's word; only the prompt discourages misuse (`mcp.py:171-174`).
-3. **Override beats dealbreaker: confirmed, reproduced.** `cyft_decide` with `vetoes:["licence"]`, `route:"act"` files the item under **act**, with stored reason "a dealbreaker applies: the licence does not permit..." Cause: `scoring.apply_route` takes `final = chosen or suggested` (`scoring.py:66-69`). The computed route is not stored, so the override survives only in that one response's text. CLI `sort` has the same path (`cli.py:247-252`). Tests cover override (`test_manual_override_wins`, `test_override_is_recorded_as_an_override`) but never with a veto.
+2. **Claim evidence: confirmed.** Claims are `{text, label}` only (`reading.py:110-124`). No evidence URL, no checked date. `verified` is accepted on the assistant's word; only the prompt discourages misuse (`mcp.py:171-174`).
+3. **Override beats dealbreaker: confirmed, reproduced.** `cyft_decide` with `vetoes:["licence"]`, `route:"act"` files the item under **act**, with stored reason "a dealbreaker applies: the licence does not permit..." Cause: `scoring.apply_route` takes `final = chosen or suggested` (`scoring.py:66-69`). The computed route is not stored, so the override survives only in that one response's text. CLI `sort` has the same path (`cli.py:245-252`). Tests cover override (`test_manual_override_wins`, `test_override_is_recorded_as_an_override`) but never with a veto.
 4. **Storage for hosted use: confirmed.**
    - One directory, no user dimension.
-   - `write_json` always writes the same `<path>.tmp` (`store.py:128-133`), so two concurrent writers to one file can collide.
+   - `write_json` always writes the same `<path>.tmp` (`store.py:41-46`), so two concurrent writers to one file can collide.
    - Every write is read-modify-write with no lock or version, so concurrent updates are lost.
    - `find_by_hash` scans every item on every add.
    - `cyft_add` takes arbitrary local paths (`mcp.py:99-107`). This must never be exposed over a network.
@@ -44,7 +44,7 @@ Read-only. Checkout: `cbrock84/cyft` main at `9c07e34` (after PR #6). Docs read 
 - **No suggestion vs decision distinction.** README principle 8 and `SECURITY.md` say a route is a proposal until a person accepts it. In code, the assistant's `cyft_decide` sets `status: decided` directly and records `decided_by: "mcp-client"`. CLI decisions set no `decided_by` at all.
 - **Dedup loses provenance.** A duplicate only increments `seen` (`intake.py:162-165, 177-180`). The second source, filename or URL variant is discarded.
 - **URL normalisation is too broad and too narrow.** It lowercases the whole URL, including path and query, so distinct case-sensitive paths merge. It keeps `utm_*`, so tracking variants do not merge.
-- **Digest watermark.** It is wall-clock `now()` at mark time, with second resolution and a `<=` compare (`digest.py:214`). An item decided in the same second after a mark is never shown. Render and mark are separate reads, so an item decided between them can be skipped. Only decisions appear; adds and readings do not. Re-deciding an item resurfaces it.
+- **Digest watermark.** It is wall-clock `now()` at mark time, with second resolution and a `<=` compare (`digest.py:17`). An item decided in the same second after a mark is never shown. Render and mark are separate reads, so an item decided between them can be skipped. Only decisions appear; adds and readings do not. Re-deciding an item resurfaces it.
 - **Sizes.** Images go inline at full size with no cap (`mcp.py:159-167`). Text is truncated at 20,000 characters on intake and 6,000 on reading.
 
 ## 4. ChatGPT platform constraints (verified 2026-10-05)
@@ -61,7 +61,8 @@ Sources: developers.openai.com/plugins/{build/mcp-server, build/auth, reference,
 - **Files.** A tool receives files only if it declares them in `_meta["openai/fileParams"]`. Each arrives as `{download_url, file_id, mime_type?, file_name?}`, and our server downloads it.
   - A widget can also use `uploadFile` / `selectFiles`, but that needs UI.
   - Size limits per tool: **unverified**.
-  - There is no documented access to all chat attachments, chat history (the guidelines forbid requesting it), other plugins, local files, or background runs. I did not read `build/mcp-events`; treat any scheduled or push behaviour as a dependency.
+  - There is no documented access to all chat attachments, chat history (the guidelines forbid requesting it), other plugins, local files, or other plugins' data.
+  - Automation is documented but untested here: users can ask ChatGPT to "automate a task, such as preparing a daily summary or checking for updates every hour", and "some plugins also support events" (help.openai.com/en/articles/20001256, checked 2026-10-06). Events are described in `developers.openai.com/plugins/build/mcp-events`; a research pass reported they need MCP protocol `2026-07-28`, which I have not verified. This could support a scheduled digest; treat it as an available option to test, not a day-one dependency.
 - **Links.** Only the URL string reaches us. Fetching page content would be our server's outbound request, which means owning SSRF protection and site terms.
 - **Testing.** chatgpt.com/plugins, then "+", then "Add custom MCP server". Use a public URL or Secure MCP Tunnel, then "Create as a plugin".
 - **Plan gate (help.openai.com/en/articles/12584461).** "Full MCP is only available to Business and Enterprise/Edu users, currently. Pro users can connect MCPs with read/fetch permissions in developer mode." Plus is not mentioned. The service is web only, and only admins/owners can enable developer mode.
@@ -70,7 +71,7 @@ Sources: developers.openai.com/plugins/{build/mcp-server, build/auth, reference,
   - Workspace sharing ("Only those invited" / "Anyone in this workspace with the link") exists for Business/Enterprise plugins (help article 20001256, reported by the research pass, not re-checked by me).
 - **Public submission.**
   - A verified organization (individual or business); an owner, or a member with Apps Management Write.
-  - Website, support, privacy policy and terms URLs; domain verification; icon and screenshots; a demo video.
+  - Website, support, privacy policy and terms URLs; domain verification; an icon; a demo video. Screenshots only if the plugin has UI: "Don't provide screenshots when the plugin has no UI" (deploy/app-review, checked 2026-10-06).
   - 5 positive and 3 negative test cases.
   - A demo account with sample data and no MFA.
   - "Trial or demo plugins will not be accepted". Suitable for ages 13-17.
