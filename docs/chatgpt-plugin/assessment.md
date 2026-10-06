@@ -90,6 +90,11 @@ Build a thin remote adapter (separate `server` extra or subpackage) over the exi
 - **Tools-only.** No widget until a concrete interaction problem needs one.
 - **Identity.** From a hosted OAuth IdP's validated token `sub`; storage is scoped per user server-side.
 - **Inputs on day one.** Pasted text, links (URL string only, no fetch), and uploaded screenshots and PDFs via `fileParams`, with type and size caps. No local paths over the network.
+  - **`download_url` is caller-supplied, so downloading it is an SSRF surface.** Requirements:
+    - HTTPS only, and only from an allowlist of OpenAI file hosts. The exact hosts are unverified; record them from real pilot traffic before widening access.
+    - No redirects to other hosts.
+    - Resolve the hostname and reject private, loopback, link-local and cloud-metadata addresses. Pin the connection to the checked address.
+    - Hard size cap, timeout, and a content-type check against the file's actual bytes.
 - **Reading.** The ChatGPT model reads; the server makes no LLM call, so marginal cost is hosting plus storage.
 - **New tools.** Profile create/update.
 - **Recommendations vs decisions.** Cyft records a computed **recommendation**. The user **accepts, rejects, defers or overrides** it, and an override is stored with the computed route and a required reason. A dealbreaker cannot be overridden into act or test (proposed rule; your call in Q4).
@@ -101,7 +106,7 @@ Build a thin remote adapter (separate `server` extra or subpackage) over the exi
 
 1. **First customer and pile.** Default: you, then a few individuals triaging saved tools, articles and ideas against 1-3 active goals. Tradeoff: narrow enough to judge quality; a team or B2B pile would need sharing and roles first.
 2. **Launch scope and your ChatGPT plan.** Default: private pilot, you only, via custom MCP server, on a Business workspace (required for write tools per the help center). An invite-only beta would be workspace sharing, which limits testers to that workspace. A public listing makes it discoverable in the directory, but who can install and use it still depends on plan, workspace, role, region and capabilities (section 7); write-tool eligibility is unverified. Tradeoff: fastest real proof, but outsiders can't use it until a public listing. Which plan do you have?
-3. **Day-one inputs.** Default: pasted text, single URLs (stored, not fetched), and uploaded PNG/JPEG/WebP and PDF via `fileParams`, at 10 MB and 25 items per call. Defer server-side URL fetch, OCR, archives and bulk imports. Tradeoff: no SSRF surface; a link is judged on what the user or ChatGPT says about it.
+3. **Day-one inputs.** Default: pasted text, single URLs (stored, not fetched), and uploaded PNG/JPEG/WebP and PDF via `fileParams`, at 10 MB and 25 items per call. Defer server-side URL fetch, OCR, archives and bulk imports. Tradeoff: no outbound fetch of user links, so a link is judged on what the user or ChatGPT says about it. File downloads remain an SSRF surface (see section 5).
 4. **Experience and decision rules.** Default: chat-first, tools only. Goals are collected conversationally into a profile tool. Each item gets a recommendation plus reasons; you accept, reject, defer or override.
    - Override rule: dealbreakers block act/test, and any override needs a reason and is stored beside the computed route.
    - Tradeoff: a hard block is safer but occasionally annoying. The alternative is allowing a veto override with an explicit flag shown in every digest.
