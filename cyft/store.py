@@ -12,6 +12,7 @@ import errno
 import hashlib
 import json
 import os
+import tempfile
 import time
 
 ITEMS = "items"
@@ -39,11 +40,20 @@ def read_json(path, default=None):
 
 
 def write_json(path, data):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, sort_keys=True, ensure_ascii=False)
-        fh.write("\n")
-    os.replace(tmp, path)
+    # Each writer owns its temporary file. A shared `<path>.tmp` lets a
+    # second writer truncate the first writer's output or replace its file.
+    # Keeping the temporary file beside the destination makes replace atomic.
+    path = os.fspath(path)
+    fd, tmp = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".",
+                               suffix=".tmp", dir=os.path.dirname(path) or ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, sort_keys=True, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def load_profile(root):
