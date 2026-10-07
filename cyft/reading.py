@@ -7,6 +7,7 @@ instruction.
 """
 
 import base64
+from datetime import date
 import json
 import os
 import re
@@ -16,6 +17,15 @@ from .providers import get as get_provider, text_block, image_block
 
 LABELS = ("claimed", "verified", "tested", "adopted", "rejected", "inferred", "uncertain")
 MAX_CLAIMS = 8
+SOURCE_KINDS = ("capture", "repository", "license", "official-docs", "pricing-page",
+                "filing", "standard", "reproducible-observation", "third-party-report",
+                "analyst-judgment")
+PROVENANCE_PROPERTIES = {
+    "source": {"type": ["string", "null"], "description": "Source URL, path or reproducible observation; never fetched by Cyft."},
+    "source_kind": {"type": ["string", "null"], "enum": [*SOURCE_KINDS, None]},
+    "recorded": {"type": ["string", "null"], "description": "Date the caller recorded this claim, or null."},
+    "as_of": {"type": ["string", "null"], "description": "Date of a changing value, if known."},
+}
 
 SYSTEM = (
     "You examine one saved item and report what it is and what is claimed about it.\n"
@@ -32,7 +42,9 @@ SYSTEM = (
     "  uncertain  you cannot tell\n"
     "\n"
     "Do not use 'verified' for something you merely believe. At most %d claims. "
-    "Prefer specific, checkable claims over marketing language."
+    "Prefer specific, checkable claims over marketing language. Include source and "
+    "source_kind when known, and recorded/as_of dates only when known. Never invent "
+    "provenance. A label and source are the caller's assertions, not verification by Cyft."
 ) % MAX_CLAIMS
 
 SCHEMA = {
@@ -47,8 +59,11 @@ SCHEMA = {
                 "properties": {
                     "text": {"type": "string"},
                     "label": {"type": "string", "enum": list(LABELS)},
+                    **PROVENANCE_PROPERTIES,
                 },
-                "required": ["text", "label"],
+                # Strict structured output requires every property. Null means
+                # no known provenance; parsing omits it from the stored claim.
+                "required": ["text", "label", *PROVENANCE_PROPERTIES],
                 "additionalProperties": False,
             },
         },
@@ -120,7 +135,22 @@ def parse_reading(raw):
             label = entry.get("label")
             if not isinstance(label, str) or label not in LABELS:
                 label = "uncertain"          # anything unrecognised is not a promotion
-            claims.append({"text": body.strip()[:300], "label": label})
+            claim = {"text": body.strip()[:300], "label": label}
+            source = entry.get("source")
+            if isinstance(source, str) and source.strip():
+                claim["source"] = source.strip()[:2000]
+            source_kind = entry.get("source_kind")
+            if isinstance(source_kind, str) and source_kind in SOURCE_KINDS:
+                claim["source_kind"] = source_kind
+            for key in ("recorded", "as_of"):
+                value = entry.get(key)
+                if isinstance(value, str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+                    try:
+                        date.fromisoformat(value)
+                    except ValueError:
+                        continue
+                    claim[key] = value
+            claims.append(claim)
     return {"what": what, "claims": claims}
 
 
@@ -135,3 +165,4 @@ def read_item(root, cfg, item, provider=None):
     item["read_at"] = store.now()
     store.save_item(root, item)
     return item
+
