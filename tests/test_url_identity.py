@@ -38,6 +38,18 @@ class TestUrlIdentity(unittest.TestCase):
         self.assertEqual(intake.normalise_url("https://User:Pass@EXAMPLE.com/A?"),
                          "User:Pass@example.com/A?")
 
+    def test_percent_triplet_hex_case_merges_without_lowering_other_text(self):
+        first, _ = intake.add_url(self.root, "https://example.com/Guide%2fb?Token=%3a")
+        second, is_new = intake.add_url(self.root, "https://EXAMPLE.com/Guide%2Fb?Token=%3A")
+        self.assertFalse(is_new)
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(intake.normalise_url(first["url"]),
+                         "example.com/Guide%2Fb?Token=%3A")
+
+    def test_invalid_percent_escape_is_not_interpreted(self):
+        self.assertNotEqual(intake.normalise_url("https://example.com/%2g"),
+                            intake.normalise_url("https://example.com/%2G"))
+
     def legacy_item(self, url):
         key = url.split("://", 1)[1].lower()
         digest = store.hash_bytes(key.encode("utf-8"))
