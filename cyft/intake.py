@@ -6,6 +6,7 @@ a normalised URL for links, so the same repository saved four times is one item.
 
 import json
 import os
+from urllib.parse import urlsplit
 
 from . import pdftext, store
 
@@ -115,16 +116,23 @@ def classify(path):
 
 
 def normalise_url(url):
-    """Same page, one item. Drops scheme case, trailing slash, and the fragment."""
+    """Keep path/query case; retain the existing scheme/slash/fragment policy.
+
+    RFC 3986 section 6.2.2.1 makes hosts case-insensitive, not paths or queries.
+    This is a deduplication key, never a destination to fetch.
+    """
     u = url.strip()
     for prefix in ("http://", "https://"):
         if u.lower().startswith(prefix):
             u = u[len(prefix):]
             break
-    u = u.split("#", 1)[0]
-    if u.endswith("/"):
-        u = u[:-1]
-    return u.lower()
+    parts = urlsplit("//" + u)
+    userinfo, separator, host = parts.netloc.rpartition("@")
+    authority = (userinfo + separator if separator else "") + host.lower()
+    path = parts.path[:-1] if parts.path.endswith("/") else parts.path
+    # Preserve even an empty query marker, and a slash inside a query value.
+    query = ("?" + parts.query) if "?" in u.split("#", 1)[0] else ""
+    return authority + path + query
 
 
 def urls_in(text):
@@ -157,8 +165,14 @@ def _blank_item(item_id, digest, kind, name):
 
 
 def add_url(root, url):
-    digest = store.hash_bytes(normalise_url(url).encode("utf-8"))
-    existing = store.find_by_hash(root, digest)
+    key = normalise_url(url)
+    # Compare stored URLs too: older records used an all-lowercase hash. Do not
+    # rewrite their identities, lose their decisions, or overwrite an old item
+    # when a new case-sensitive URL happens to hash to its old key.
+    digest = store.hash_bytes(("url-v2\0" + key).encode("utf-8"))
+    existing = next((item for item in store.list_items(root)
+                     if item.get("kind") == "url" and item.get("url")
+                     and normalise_url(item["url"]) == key), None)
     if existing:
         existing["seen"] = existing.get("seen", 1) + 1
         store.save_item(root, existing)
@@ -286,3 +300,4 @@ def add_paths(root, paths, on_skip=None):
         else:
             dupes += 1
     return added, dupes
+
