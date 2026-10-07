@@ -6,6 +6,7 @@ a normalised URL for links, so the same repository saved four times is one item.
 
 import json
 import os
+import re
 from urllib.parse import urlsplit
 
 from . import pdftext, store
@@ -132,7 +133,10 @@ def normalise_url(url):
     path = parts.path[:-1] if parts.path.endswith("/") else parts.path
     # Preserve even an empty query marker, and a slash inside a query value.
     query = ("?" + parts.query) if "?" in u.split("#", 1)[0] else ""
-    return authority + path + query
+    # Hex digits in a percent triplet are case-insensitive. Keep the ordinary
+    # letters, including query values, in their original case.
+    return re.sub(r"%[0-9A-Fa-f]{2}", lambda match: match.group().upper(),
+                  authority + path + query)
 
 
 def urls_in(text):
