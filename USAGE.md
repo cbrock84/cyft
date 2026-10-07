@@ -153,12 +153,16 @@ claude mcp add cyft -- cyft --root /absolute/path/to/your/.cyft mcp
 Use an absolute `--root`. The server is started by your client in a working
 directory you do not control, so a relative path will not find your run store.
 
-Then say something like: *work through my cyft pile.* The eight tools are
+After `cyft init`, you can ask your MCP client to set your first goal and
+constraints in conversation, then add items to the pile. Review the saved
+profile before routing decisions. The ten tools are
 
 | Tool | What it does |
 | --- | --- |
 | `cyft_status` | Counts by status and route, plus the goals |
 | `cyft_profile` | The full profile |
+| `cyft_set_goal` | Create a goal or edit one by its existing id |
+| `cyft_set_constraints` | Set operating, buying and other limits |
 | `cyft_add` | Add files, folders or URLs |
 | `cyft_next_unread` | The next item, with the screenshot attached |
 | `cyft_record_reading` | Store what it is and what is claimed |
