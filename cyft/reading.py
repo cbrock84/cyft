@@ -21,10 +21,10 @@ SOURCE_KINDS = ("capture", "repository", "license", "official-docs", "pricing-pa
                 "filing", "standard", "reproducible-observation", "third-party-report",
                 "analyst-judgment")
 PROVENANCE_PROPERTIES = {
-    "source": {"type": "string", "description": "Source URL, path or reproducible observation; never fetched by Cyft."},
-    "source_kind": {"type": "string", "enum": list(SOURCE_KINDS)},
-    "recorded": {"type": "string", "format": "date", "description": "Date the caller recorded this claim."},
-    "as_of": {"type": "string", "format": "date", "description": "Date of a changing value, if known."},
+    "source": {"type": ["string", "null"], "description": "Source URL, path or reproducible observation; never fetched by Cyft."},
+    "source_kind": {"type": ["string", "null"], "enum": [*SOURCE_KINDS, None]},
+    "recorded": {"type": ["string", "null"], "description": "Date the caller recorded this claim, or null."},
+    "as_of": {"type": ["string", "null"], "description": "Date of a changing value, if known."},
 }
 
 SYSTEM = (
@@ -61,7 +61,9 @@ SCHEMA = {
                     "label": {"type": "string", "enum": list(LABELS)},
                     **PROVENANCE_PROPERTIES,
                 },
-                "required": ["text", "label"],
+                # Strict structured output requires every property. Null means
+                # no known provenance; parsing omits it from the stored claim.
+                "required": ["text", "label", *PROVENANCE_PROPERTIES],
                 "additionalProperties": False,
             },
         },
