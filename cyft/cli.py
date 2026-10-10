@@ -162,7 +162,8 @@ def cmd_read(args):
     require_store(root)
     cfg = configmod.load(root)
     items = [i for i in store.list_items(root)
-             if i.get("status") == "new" or (args.all and i.get("status") != "decided")]
+             if i.get("status") == "new"
+             or (args.all and i.get("status") not in ("decided", "recommended"))]
     if not items:
         out("Nothing to read.")
         return 0
@@ -214,7 +215,29 @@ def cmd_sort(args):
             out(item["url"])
         for claim in item.get("claims", []):
             out("  [%s] %s" % (claim["label"], claim["text"]))
+            if claim.get("source"):
+                out("      %s (checked %s)" % (claim["source"], claim.get("checked")))
         out("-" * 68)
+
+        prop = item.get("proposal") if item.get("status") == "recommended" else None
+        if prop:
+            out("  Your assistant proposed %s: %s" % (prop["route"].upper(), prop["reason"]))
+            rec = item.get("recommendation") or {}
+            if prop.get("overrides_recommendation") and rec.get("route"):
+                out("  Cyft recommended %s: %s" % (rec["route"].upper(), rec["reason"]))
+            chosen = _ask_route(prop["route"])
+            if chosen is None:
+                break
+            try:
+                scoring.apply_route(item, profile, chosen=chosen or prop["route"],
+                                    reason=None if chosen and chosen != prop["route"]
+                                    else prop["reason"])
+            except scoring.ScoringError as exc:
+                err("  %s" % exc)
+                continue
+            store.save_item(root, item)
+            out("  Filed under %s" % item["route"])
+            continue
 
         for i, g in enumerate(goals, 1):
             out("  %d. %s" % (i, g["name"]))

@@ -22,8 +22,10 @@ def since(items, timestamp):
 
 def render(items, timestamp=None):
     fresh = since(items, timestamp)
+    waiting = len([i for i in items if i.get("status") == "recommended"])
+    tail = ("%d proposal(s) await your confirmation.\n" % waiting) if waiting else ""
     if not fresh:
-        return "Nothing new since the last digest."
+        return ("Nothing new since the last digest.\n" + tail).rstrip("\n")
 
     lines = []
     for r in ROUTES:
@@ -35,5 +37,9 @@ def render(items, timestamp=None):
             name = it.get("what") or it.get("name") or it.get("id")
             reason = it.get("reason")
             lines.append("  - %s%s" % (name, ("  (%s)" % reason) if reason else ""))
+            decision = it.get("decision") or {}
+            rec = it.get("recommendation") or {}
+            if decision.get("overrides_recommendation") and rec.get("route"):
+                lines.append("    Cyft recommended %s: %s" % (rec["route"], rec["reason"]))
         lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    return "\n".join(lines).rstrip() + "\n" + tail

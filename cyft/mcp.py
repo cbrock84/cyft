@@ -78,9 +78,9 @@ def tool_status(root, args):
     counts = scoring.counts([i for i in items if i.get("status") == "decided"])
     lines = [
         "Run store: %s" % root,
-        "Items: %d  (new %d, read %d, decided %d)" % (
+        "Items: %d  (new %d, read %d, proposed %d, decided %d)" % (
             len(items), by_status.get("new", 0), by_status.get("read", 0),
-            by_status.get("decided", 0)),
+            by_status.get("recommended", 0), by_status.get("decided", 0)),
         "Routes: " + "  ".join("%s %d" % (digestmod.LABEL[r], counts[r])
                                for r in scoring.ROUTES),
         "",
@@ -171,7 +171,8 @@ def tool_next_unread(root, args):
     content.append({"type": "text", "text":
                     "Now call cyft_record_reading with this item id, what it is, and the "
                     "claims made about it. Label a claim 'verified' only if you checked a "
-                    "primary source."})
+                    "primary source, and give its source URL, the passage you read there, "
+                    "and the date checked. Without all three it is stored as claimed."})
     return {"content": content, "isError": False}
 
 
@@ -192,15 +193,24 @@ def tool_record_reading(root, args):
     item["read_by"] = "mcp-client"
     store.save_item(root, item)
     kept = ", ".join("%s (%s)" % (c["text"][:40], c["label"]) for c in parsed["claims"])
-    return _text("Recorded %s: %s\nClaims kept: %s\nNext: cyft_next_unread, or "
-                 "cyft_next_undecided once reading is done."
-                 % (item["id"], item["what"], kept or "none"))
+    demoted = len([c for c in parsed["claims"] if c.get("demoted")])
+    body = "Recorded %s: %s\nClaims kept: %s" % (item["id"], item["what"], kept or "none")
+    if demoted:
+        body += ("\n%d claim(s) labelled verified were stored as claimed: %s."
+                 % (demoted, reading.DEMOTED))
+    return _text(body + "\nNext: cyft_next_unread, or cyft_next_undecided once "
+                 "reading is done.")
 
 
 def tool_next_undecided(root, args):
     profile = store.load_profile(root)
-    items = [i for i in store.list_items(root) if i.get("status") != "decided"]
+    everything = store.list_items(root)
+    waiting = len([i for i in everything if i.get("status") == "recommended"])
+    items = [i for i in everything if i.get("status") not in ("decided", "recommended")]
     if not items:
+        if waiting:
+            return _text("Nothing left to propose. %d proposal(s) await the person's "
+                         "confirmation." % waiting)
         return _text("Nothing left to decide.")
     read_first = [i for i in items if i.get("status") == "read"] or items
     item = read_first[0]
@@ -215,11 +225,14 @@ def tool_next_undecided(root, args):
         lines.append("Claims recorded:")
         for c in item["claims"]:
             lines.append("  [%s] %s" % (c["label"], c["text"]))
+            if c.get("source"):
+                lines.append("      source: %s (checked %s)" % (c["source"], c.get("checked")))
     lines += ["", _profile_summary(profile), "",
               "Call cyft_decide with the goal id this serves, or 'none', or 'notmine'. "
               "When a goal is named, also give help (lot, some, little) and cost "
               "(hour, day, week). Cyft computes the route; you do not choose it, though "
-              "you may override it with the route argument if you disagree."]
+              "you may propose another with the route argument if you disagree. "
+              "Nothing is decided until the person confirms it with cyft_confirm."]
     return _text("\n".join(lines))
 
 
@@ -257,23 +270,55 @@ def tool_decide(root, args):
                      % (", ".join(map(str, unknown)), ", ".join(sorted(scoring.VETOES))))
     item["vetoes"] = vetoes
 
-    suggested, why = scoring.route(item, profile)
     override = args.get("route")
     if override is not None and override not in scoring.ROUTES:
         return _fail("route must be one of: %s" % ", ".join(scoring.ROUTES))
     try:
-        scoring.apply_route(item, profile, chosen=override,
-                            reason=args.get("reason") or why)
+        scoring.propose(item, profile, chosen=override, reason=args.get("reason"),
+                        by="mcp-client")
     except scoring.ScoringError as exc:
         return _fail(str(exc))
-    item["decided_by"] = "mcp-client"
     store.save_item(root, item)
 
-    note = "Filed %s under %s. Reason: %s" % (item["id"], item["route"], item["reason"])
-    if override and suggested and override != suggested:
-        note += "\n(You overrode the computed route, which was %s.)" % suggested
-    left = len([i for i in store.list_items(root) if i.get("status") != "decided"])
-    return _text(note + "\n%d item(s) still undecided." % left)
+    rec, prop = item["recommendation"], item["proposal"]
+    note = "Proposed %s for %s. Reason: %s" % (prop["route"], item["id"], prop["reason"])
+    if prop["overrides_recommendation"]:
+        note += "\n(This overrides Cyft's recommendation, which was %s: %s.)" % (
+            rec["route"], rec["reason"])
+    note += ("\nThis is not decided yet. Show the person the proposal and call "
+             "cyft_confirm only after they agree to it.")
+    left = len([i for i in store.list_items(root)
+                if i.get("status") not in ("decided", "recommended")])
+    return _text(note + "\n%d item(s) still without a proposal." % left)
+
+
+def tool_confirm(root, args):
+    ids = args.get("item_ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+        return _fail("item_ids must be a non-empty list of item ids.")
+    profile = store.load_profile(root)
+    done, problems = [], []
+    for item_id in ids:
+        item = _find(root, item_id)
+        if item is None:
+            problems.append("%s: no such item" % item_id)
+            continue
+        prop = item.get("proposal")
+        if item.get("status") != "recommended" or not prop:
+            problems.append("%s: nothing proposed to confirm" % item_id)
+            continue
+        try:
+            scoring.apply_route(item, profile, chosen=prop["route"], reason=prop["reason"],
+                                by="person-via-mcp-client")
+        except scoring.ScoringError as exc:
+            problems.append("%s: %s" % (item_id, exc))
+            continue
+        store.save_item(root, item)
+        done.append("%s under %s" % (item_id, item["route"]))
+    body = "Decided: %s" % (", ".join(done) or "none")
+    if problems:
+        body += "\nNot decided:\n  " + "\n  ".join(problems)
+    return {"content": [{"type": "text", "text": body}], "isError": not done}
 
 
 def tool_digest(root, args):
@@ -358,12 +403,23 @@ TOOLS = [
                         "properties": {
                             "text": {"type": "string"},
                             "label": {"type": "string", "enum": list(reading.LABELS)},
+                            "source": {"type": "string",
+                                       "description": "http(s) URL checked. Required for verified."},
+                            "passage": {"type": "string",
+                                        "description": "The exact text read at source, "
+                                                       "up to %d characters. Required for "
+                                                       "verified." % reading.MAX_PASSAGE},
+                            "checked": {"type": "string",
+                                        "description": "Date checked, YYYY-MM-DD. "
+                                                       "Required for verified."},
                         },
                         "required": ["text", "label"],
                     },
                     "description": "Use 'verified' only for something checked against a "
                                    "primary source such as the project's own repository "
-                                   "or licence file.",
+                                   "or licence file, with source, passage and checked. "
+                                   "A verified claim missing any of them is stored as "
+                                   "claimed.",
                 },
             },
             "required": ["item_id", "what"],
@@ -382,9 +438,11 @@ TOOLS = [
         "name": "cyft_decide",
         "title": "Decide where an item goes",
         "description": "Give the goal it serves and, when it serves one, how much it "
-                       "helps and what a first try costs. Cyft computes the route from "
-                       "those and records the reasoning. A dealbreaker outranks any "
-                       "score. Pass route only to override the computed answer.",
+                       "helps and what a first try costs. Cyft computes its recommended "
+                       "route from those and records it as a proposal, not a decision. "
+                       "A dealbreaker outranks any score: an item with one can never be "
+                       "proposed or decided as act or test. Pass route only to propose "
+                       "something other than the recommendation.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -396,12 +454,29 @@ TOOLS = [
                 "vetoes": {"type": "array", "items": {
                     "type": "string", "enum": sorted(scoring.VETOES)}},
                 "route": {"type": "string", "enum": list(scoring.ROUTES),
-                          "description": "Only to override the computed route."},
+                          "description": "Only to propose a route other than Cyft's "
+                                         "recommendation."},
                 "reason": {"type": "string"},
             },
             "required": ["item_id", "goal"],
         },
         "handler": tool_decide,
+    },
+    {
+        "name": "cyft_confirm",
+        "title": "Confirm proposed decisions",
+        "description": "Turn proposals into decisions. Call this only after the person "
+                       "has seen each proposal in this conversation and said yes to it. "
+                       "Decisions are recorded as made by the person through you.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_ids": {"type": "array", "items": {"type": "string"},
+                             "description": "Items whose proposal the person accepted."},
+            },
+            "required": ["item_ids"],
+        },
+        "handler": tool_confirm,
     },
     {
         "name": "cyft_digest",

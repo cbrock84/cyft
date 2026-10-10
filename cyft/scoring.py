@@ -63,19 +63,67 @@ def route(item, profile):
     return "reference", "little help to %s as things stand" % name
 
 
-def apply_route(item, profile, chosen=None, reason=None):
+# A dealbreaker may still be filed as watch, reference, reject or notmine, but
+# never as something to act on or test. This is enforced here, not in a prompt.
+BLOCKED_BY_VETO = ("act", "test")
+
+
+def active_vetoes(item):
+    return [v for v in item.get("vetoes", []) if v in VETOES]
+
+
+def recommend(item, profile):
+    """Store Cyft's own recommendation on the item, apart from any decision."""
     suggested, why = route(item, profile)
+    from . import store
+    item["recommendation"] = {"route": suggested, "reason": why, "by": "cyft",
+                              "at": store.now()}
+    return suggested, why
+
+
+def _choose(item, profile, chosen, reason):
+    suggested, why = recommend(item, profile)
     final = chosen or suggested
     if not final:
         raise ScoringError(
             "not enough answered to route this item. Set a goal, and help and cost.")
     if final not in ROUTES:
         raise ScoringError("unknown route %r. One of: %s" % (final, ", ".join(ROUTES)))
-    item["route"] = final
-    item["reason"] = (reason or item.get("reason") or why or "").strip()
-    item["status"] = "decided"
+    vetoes = active_vetoes(item)
+    if vetoes and final in BLOCKED_BY_VETO:
+        raise ScoringError(
+            "a dealbreaker applies (%s: %s), so this cannot go to %s. "
+            "Remove the dealbreaker if it does not apply." % (vetoes[0], VETOES[vetoes[0]], final))
+    overrides = bool(suggested) and final != suggested
+    text = (reason or "").strip()
+    if not text:
+        text = ("chosen over Cyft's recommendation of %s" % suggested) if overrides else why
+    return final, text, overrides
+
+
+def propose(item, profile, chosen=None, reason=None, by="mcp-client"):
+    """Record a route someone other than the person picked. Not a decision."""
+    final, text, overrides = _choose(item, profile, chosen, reason)
     from . import store
-    item["decided_at"] = store.now()
+    item["proposal"] = {"route": final, "reason": text, "by": by, "at": store.now(),
+                        "overrides_recommendation": overrides}
+    item["status"] = "recommended"
+    return item
+
+
+def apply_route(item, profile, chosen=None, reason=None, by="person"):
+    """The person's decision. The only path that sets status 'decided'."""
+    final, text, overrides = _choose(item, profile, chosen, reason)
+    from . import store
+    at = store.now()
+    item["decision"] = {"route": final, "reason": text, "by": by, "at": at,
+                        "overrides_recommendation": overrides}
+    item["route"] = final
+    item["reason"] = text
+    item["status"] = "decided"
+    item["decided_at"] = at
+    item["decided_by"] = by
+    item.pop("proposal", None)
     return item
 
 
