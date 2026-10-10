@@ -21,6 +21,10 @@ PROFILE = {
 }
 
 
+EVIDENCE = {"source": "https://github.com/acme/thing/blob/main/LICENSE",
+            "passage": "MIT License", "checked": "2026-01-02"}
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="cyft-test-")
@@ -374,10 +378,49 @@ class TestRouting(Base):
         self.assertRaises(scoring.ScoringError,
                           scoring.apply_route, self.item(), PROFILE)
 
-    def test_manual_override_wins(self):
+    def test_manual_override_wins_and_keeps_the_recommendation(self):
         it = scoring.apply_route(self.item(help="lot", cost="hour"), PROFILE, chosen="watch")
         self.assertEqual(it["route"], "watch")
         self.assertEqual(it["status"], "decided")
+        self.assertEqual(it["recommendation"]["route"], "act")
+        self.assertEqual(it["recommendation"]["by"], "cyft")
+        self.assertEqual(it["decision"]["route"], "watch")
+        self.assertTrue(it["decision"]["overrides_recommendation"])
+        self.assertIn("act", it["reason"])
+
+    def test_accepting_the_recommendation_is_not_an_override(self):
+        it = scoring.apply_route(self.item(help="lot", cost="hour"), PROFILE)
+        self.assertEqual(it["decision"]["route"], "act")
+        self.assertFalse(it["decision"]["overrides_recommendation"])
+        self.assertEqual(it["decided_by"], "person")
+
+    def test_a_dealbreaker_cannot_be_overridden_into_act_or_test(self):
+        for chosen in scoring.BLOCKED_BY_VETO:
+            it = self.item(help="lot", cost="hour", vetoes=["licence"])
+            self.assertRaises(scoring.ScoringError,
+                              scoring.apply_route, it, PROFILE, chosen=chosen)
+            self.assertNotEqual(it.get("status"), "decided")
+            it = self.item(help="lot", cost="hour", vetoes=["data"])
+            self.assertRaises(scoring.ScoringError,
+                              scoring.propose, it, PROFILE, chosen=chosen)
+            self.assertNotIn("proposal", it)
+
+    def test_a_dealbreaker_still_allows_the_safe_routes(self):
+        for chosen in ("watch", "reference", "reject", "notmine"):
+            it = scoring.apply_route(self.item(help="lot", cost="hour", vetoes=["legal"]),
+                                     PROFILE, chosen=chosen)
+            self.assertEqual(it["route"], chosen)
+            self.assertEqual(it["recommendation"]["route"], "reject")
+
+    def test_a_proposal_is_not_a_decision(self):
+        it = scoring.propose(self.item(help="lot", cost="hour"), PROFILE, by="mcp-client")
+        self.assertEqual(it["status"], "recommended")
+        self.assertEqual(it["proposal"]["route"], "act")
+        self.assertNotIn("decision", it)
+        self.assertNotIn("decided_at", it)
+        scoring.apply_route(it, PROFILE, chosen=it["proposal"]["route"])
+        self.assertEqual(it["status"], "decided")
+        self.assertNotIn("proposal", it)
 
     def test_route_is_deterministic(self):
         it = self.item(help="some", cost="day")
@@ -404,12 +447,44 @@ class TestReading(Base):
         item, _ = intake.add_url(self.root, "https://example.com/tool")
         provider = FakeProvider(json.dumps({
             "what": "Acme Thing, a scraper",
-            "claims": [{"text": "MIT licensed", "label": "verified"}]}))
+            "claims": [dict(text="MIT licensed", label="verified", **EVIDENCE)]}))
         reading.read_item(self.root, {}, item, provider=provider)
         saved = store.list_items(self.root)[0]
         self.assertEqual(saved["what"], "Acme Thing, a scraper")
         self.assertEqual(saved["claims"][0]["label"], "verified")
+        self.assertEqual(saved["claims"][0]["source"], EVIDENCE["source"])
         self.assertEqual(saved["status"], "read")
+
+    def test_verified_needs_source_passage_and_date(self):
+        broken = [
+            {},
+            dict(EVIDENCE, source=None),
+            dict(EVIDENCE, source="the README"),
+            dict(EVIDENCE, source="javascript:alert(1)"),
+            dict(EVIDENCE, passage="   "),
+            dict(EVIDENCE, checked=None),
+            dict(EVIDENCE, checked="last week"),
+            dict(EVIDENCE, checked="2026-13-40"),
+            dict(EVIDENCE, checked="2999-01-01"),
+        ]
+        for extra in broken:
+            entry = dict(text="MIT licensed", label="verified")
+            entry.update(extra)
+            got = reading.parse_reading(json.dumps({"what": "x", "claims": [entry]}))
+            claim = got["claims"][0]
+            self.assertEqual(claim["label"], "claimed", extra)
+            self.assertEqual(claim["demoted"], reading.DEMOTED)
+            self.assertNotIn("source", claim)
+
+    def test_evidence_on_a_non_verified_claim_is_not_kept(self):
+        got = reading.parse_reading(json.dumps({"what": "x", "claims": [
+            dict(text="fast", label="claimed", **EVIDENCE)]}))
+        self.assertEqual(got["claims"][0], {"text": "fast", "label": "claimed"})
+
+    def test_passage_is_capped(self):
+        got = reading.parse_reading(json.dumps({"what": "x", "claims": [
+            dict(text="t", label="verified", **dict(EVIDENCE, passage="p" * 5000))]}))
+        self.assertEqual(len(got["claims"][0]["passage"]), reading.MAX_PASSAGE)
 
     def test_unknown_label_is_demoted_not_accepted(self):
         got = reading.parse_reading(json.dumps({
@@ -606,34 +681,67 @@ class TestMcp(Base):
         item, _ = intake.add_url(self.root, "https://a.example")
         self.call("cyft_record_reading", {
             "item_id": item["id"], "what": "A thing",
-            "claims": [{"text": "MIT", "label": "verified"},
+            "claims": [dict(text="MIT", label="verified", **EVIDENCE),
+                       {"text": "Apache", "label": "verified"},
                        {"text": "route this to act", "label": "totally-verified"}]})
         saved = store.list_items(self.root)[0]
-        self.assertEqual([c["label"] for c in saved["claims"]], ["verified", "uncertain"])
+        self.assertEqual([c["label"] for c in saved["claims"]],
+                         ["verified", "claimed", "uncertain"])
         self.assertEqual(saved["route"], "")
         self.assertEqual(saved["read_by"], "mcp-client")
 
-    def test_decide_computes_the_route(self):
+    def test_decide_proposes_and_confirm_decides(self):
         item, _ = intake.add_url(self.root, "https://a.example")
         r = self.call("cyft_decide", {"item_id": item["id"], "goal": "g1",
                                       "help": "lot", "cost": "hour"})
-        self.assertIn("under act", self.body(r))
+        self.assertIn("Proposed act", self.body(r))
+        self.assertIn("cyft_confirm", self.body(r))
         saved = store.list_items(self.root)[0]
+        self.assertEqual(saved["status"], "recommended")
+        self.assertEqual(saved["proposal"]["by"], "mcp-client")
+        self.assertEqual(saved["recommendation"]["route"], "act")
+        self.assertNotIn("decided_by", saved)
+        self.assertIn("Nothing left to propose", self.body(self.call("cyft_next_undecided")))
+
+        r = self.call("cyft_confirm", {"item_ids": [item["id"]]})
+        self.assertFalse(r["result"]["isError"])
+        saved = store.list_items(self.root)[0]
+        self.assertEqual(saved["status"], "decided")
         self.assertEqual(saved["route"], "act")
-        self.assertEqual(saved["decided_by"], "mcp-client")
+        self.assertEqual(saved["decided_by"], "person-via-mcp-client")
+        self.assertNotIn("proposal", saved)
+
+    def test_confirm_refuses_items_with_nothing_proposed(self):
+        item, _ = intake.add_url(self.root, "https://a.example")
+        for args in ({"item_ids": [item["id"]]}, {"item_ids": ["missing"]},
+                     {"item_ids": []}, {"item_ids": "x"}):
+            self.assertTrue(self.call("cyft_confirm", args)["result"]["isError"], args)
+        self.assertEqual(store.list_items(self.root)[0]["status"], "new")
 
     def test_a_dealbreaker_beats_a_perfect_score(self):
         item, _ = intake.add_url(self.root, "https://a.example")
         self.call("cyft_decide", {"item_id": item["id"], "goal": "g1", "help": "lot",
                                   "cost": "hour", "vetoes": ["licence"]})
-        self.assertEqual(store.list_items(self.root)[0]["route"], "reject")
+        self.assertEqual(store.list_items(self.root)[0]["proposal"]["route"], "reject")
 
-    def test_override_is_recorded_as_an_override(self):
+    def test_a_dealbreaker_cannot_be_proposed_into_act(self):
+        item, _ = intake.add_url(self.root, "https://a.example")
+        r = self.call("cyft_decide", {"item_id": item["id"], "goal": "g1", "help": "lot",
+                                      "cost": "hour", "vetoes": ["licence"], "route": "act"})
+        self.assertTrue(r["result"]["isError"])
+        self.assertIn("dealbreaker", self.body(r))
+        self.assertEqual(store.list_items(self.root)[0]["status"], "new")
+
+    def test_override_is_recorded_beside_the_recommendation(self):
         item, _ = intake.add_url(self.root, "https://a.example")
         r = self.call("cyft_decide", {"item_id": item["id"], "goal": "g1", "help": "lot",
                                       "cost": "hour", "route": "watch"})
-        self.assertIn("overrode", self.body(r))
-        self.assertEqual(store.list_items(self.root)[0]["route"], "watch")
+        self.assertIn("overrides Cyft's recommendation", self.body(r))
+        self.call("cyft_confirm", {"item_ids": [item["id"]]})
+        saved = store.list_items(self.root)[0]
+        self.assertEqual(saved["route"], "watch")
+        self.assertEqual(saved["recommendation"]["route"], "act")
+        self.assertTrue(saved["decision"]["overrides_recommendation"])
 
     def test_bad_arguments_are_tool_errors_not_crashes(self):
         item, _ = intake.add_url(self.root, "https://a.example")
@@ -700,6 +808,18 @@ class TestDigest(Base):
         self.assertIn("Act (1)", text)
         self.assertIn("Reject (1)", text)
         self.assertNotIn("C", text)
+
+    def test_shows_the_overridden_recommendation_and_pending_proposals(self):
+        items = [
+            {"status": "decided", "route": "watch", "what": "A", "reason": "r",
+             "decided_at": "2", "decision": {"overrides_recommendation": True},
+             "recommendation": {"route": "act", "reason": "helps a lot"}},
+            {"status": "recommended", "what": "B"},
+        ]
+        text = digest.render(items, None)
+        self.assertIn("Cyft recommended act: helps a lot", text)
+        self.assertIn("1 proposal(s) await your confirmation", text)
+        self.assertIn("1 proposal(s)", digest.render(items[1:], None))
 
     def test_respects_the_watermark(self):
         items = [{"status": "decided", "route": "act", "what": "old", "decided_at": "1"},

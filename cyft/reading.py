@@ -10,12 +10,15 @@ import base64
 import json
 import os
 import re
+import time
 
 from . import store
 from .providers import get as get_provider, text_block, image_block
 
 LABELS = ("claimed", "verified", "tested", "adopted", "rejected", "inferred", "uncertain")
 MAX_CLAIMS = 8
+MAX_PASSAGE = 500
+DEMOTED = "verified without a cited passage, source URL and checked date"
 
 SYSTEM = (
     "You examine one saved item and report what it is and what is claimed about it.\n"
@@ -26,7 +29,9 @@ SYSTEM = (
     "\n"
     "Label every claim from this closed list:\n"
     "  verified   you checked a primary source: the project's own repository, licence "
-    "file, or official documentation\n"
+    "file, or official documentation. Give its URL as source, the exact passage you "
+    "read as passage, and the date you checked it as checked (YYYY-MM-DD). Without "
+    "all three the claim is stored as claimed\n"
     "  claimed    the item asserts it without evidence\n"
     "  inferred   your own reasonable reading, not stated outright\n"
     "  uncertain  you cannot tell\n"
@@ -47,8 +52,13 @@ SCHEMA = {
                 "properties": {
                     "text": {"type": "string"},
                     "label": {"type": "string", "enum": list(LABELS)},
+                    # Null unless verified. Listed as required because strict
+                    # structured output wants every property named.
+                    "source": {"type": ["string", "null"]},
+                    "passage": {"type": ["string", "null"]},
+                    "checked": {"type": ["string", "null"]},
                 },
-                "required": ["text", "label"],
+                "required": ["text", "label", "source", "passage", "checked"],
                 "additionalProperties": False,
             },
         },
@@ -120,8 +130,41 @@ def parse_reading(raw):
             label = entry.get("label")
             if not isinstance(label, str) or label not in LABELS:
                 label = "uncertain"          # anything unrecognised is not a promotion
-            claims.append({"text": body.strip()[:300], "label": label})
+            claim = {"text": body.strip()[:300], "label": label}
+            if label == "verified":
+                evidence = verified_evidence(entry)
+                if evidence:
+                    claim.update(evidence)
+                else:
+                    claim["label"] = "claimed"
+                    claim["demoted"] = DEMOTED
+            claims.append(claim)
     return {"what": what, "claims": claims}
+
+
+def verified_evidence(entry, today=None):
+    """Return {source, passage, checked} if the claim earns 'verified', else None.
+
+    The assistant's word is not evidence. A verified claim must say where it was
+    checked (an http(s) URL), quote what was read there, and say when.
+    """
+    source, passage, checked = (entry.get(k) for k in ("source", "passage", "checked"))
+    if not isinstance(source, str) or not re.match(r"https?://\S+$", source.strip()):
+        return None
+    if not isinstance(passage, str) or not passage.strip():
+        return None
+    if not isinstance(checked, str):
+        return None
+    checked = checked.strip()
+    try:
+        day = time.strptime(checked, "%Y-%m-%d")
+    except ValueError:
+        return None
+    today = today or time.strftime("%Y-%m-%d", time.gmtime())
+    if time.strftime("%Y-%m-%d", day) > today:
+        return None                          # a check that has not happened yet
+    return {"source": source.strip()[:500], "passage": passage.strip()[:MAX_PASSAGE],
+            "checked": checked}
 
 
 def read_item(root, cfg, item, provider=None):
