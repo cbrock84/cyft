@@ -11,6 +11,7 @@ import json
 import os
 import re
 import time
+from urllib.parse import urlsplit
 
 from . import store
 from .providers import get as get_provider, text_block, image_block
@@ -149,13 +150,15 @@ def verified_evidence(entry, today=None):
     checked (an http(s) URL), quote what was read there, and say when.
     """
     source, passage, checked = (entry.get(k) for k in ("source", "passage", "checked"))
-    if not isinstance(source, str) or not re.match(r"https?://\S+$", source.strip()):
+    if not isinstance(source, str) or not _evidence_url(source.strip()):
         return None
     if not isinstance(passage, str) or not passage.strip():
         return None
     if not isinstance(checked, str):
         return None
     checked = checked.strip()
+    if not re.match(r"\d{4}-\d{2}-\d{2}$", checked):
+        return None                          # strptime would take 2026-1-2
     try:
         day = time.strptime(checked, "%Y-%m-%d")
     except ValueError:
@@ -178,3 +181,15 @@ def read_item(root, cfg, item, provider=None):
     item["read_at"] = store.now()
     store.save_item(root, item)
     return item
+
+
+def _evidence_url(value):
+    """An http(s) URL that names a host, so the source points somewhere."""
+    if re.search(r"\s", value):
+        return False
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(host)
