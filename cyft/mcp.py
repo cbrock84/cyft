@@ -142,8 +142,12 @@ def tool_set_goal(root, args):
         stop_when = _profile_field(args, "stop_when", 500)
         goals = profile["goals"]
         if goal_id is None:
-            # Fill the blank starter goal so an initialized profile stays tidy.
-            blank = next((g for g in goals if not (g.get("name") or "").strip()), None)
+            # Fill the blank starter goal so an initialized profile stays tidy,
+            # but never one a decision already points at: reusing its id would
+            # silently re-attribute that decision to the new goal.
+            referenced = {i.get("goal") for i in store.list_items(root)}
+            blank = next((g for g in goals if not (g.get("name") or "").strip()
+                          and g["id"] not in referenced), None)
             if blank is None:
                 goal_id = "goal-" + uuid.uuid4().hex[:12]
                 blank = {"id": goal_id}

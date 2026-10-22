@@ -51,6 +51,16 @@ class ProfileTools(unittest.TestCase):
         self.assertEqual(store.load_profile(self.root)["constraints"], {
             "can_buy": "No subscriptions", "custom": "keep me", "notes": "Weekends only"})
 
+    def test_new_goal_does_not_reuse_blank_goal_a_decision_references(self):
+        store.save_item(self.root, {"id": "item1", "status": "decided", "goal": "goal-1"})
+        self.assertFalse(self.call("cyft_set_goal", {"name": "Ship prototype"})["isError"])
+        goals = store.load_profile(self.root)["goals"]
+        self.assertEqual(len(goals), 2)
+        self.assertEqual(goals[0], {"id": "goal-1", "name": "", "why": "", "stop_when": ""})
+        self.assertNotEqual(goals[1]["id"], "goal-1")
+        self.assertEqual(goals[1]["name"], "Ship prototype")
+        self.assertEqual(store.list_items(self.root)[0]["goal"], "goal-1")
+
     def test_invalid_requests_do_not_change_file(self):
         path = os.path.join(self.root, "profile.json")
         with open(path, "rb") as fh:
