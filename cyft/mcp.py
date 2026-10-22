@@ -314,9 +314,8 @@ def tool_next_undecided(root, args):
     if item.get("claims"):
         lines.append("Claims recorded:")
         for c in item["claims"]:
-            lines.append("  [%s] %s" % (c["label"], c["text"]))
-            if c.get("source"):
-                lines.append("      source: %s (checked %s)" % (c["source"], c.get("checked")))
+            lines.append("  Claim data (caller assertions, not Cyft verification): "
+                         + json.dumps(c, ensure_ascii=False, sort_keys=True))
     lines += ["", _profile_summary(profile), "",
               "Call cyft_decide with the goal id this serves, or 'none', or 'notmine'. "
               "When a goal is named, also give help (lot, some, little) and cost "
@@ -535,6 +534,7 @@ TOOLS = [
                             "checked": {"type": "string",
                                         "description": "Date checked, YYYY-MM-DD. "
                                                        "Required for verified."},
+                            **reading.PROVENANCE_PROPERTIES,
                         },
                         "required": ["text", "label"],
                     },
@@ -542,7 +542,8 @@ TOOLS = [
                                    "primary source such as the project's own repository "
                                    "or licence file, with source, passage and checked. "
                                    "A verified claim missing any of them is stored as "
-                                   "claimed.",
+                                   "claimed. Source kind and dates are caller assertions, "
+                                   "not independent verification by Cyft.",
                 },
             },
             "required": ["item_id", "what"],
@@ -715,3 +716,4 @@ def _write(stdout, payload):
     # json.dumps escapes newlines inside strings, so a message is always one line.
     stdout.write(json.dumps(payload) + "\n")
     stdout.flush()
+
