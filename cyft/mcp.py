@@ -21,6 +21,7 @@ import base64
 import json
 import os
 import sys
+import uuid
 
 from . import digest as digestmod
 from . import intake, reading, scoring, store
@@ -78,9 +79,9 @@ def tool_status(root, args):
     counts = scoring.counts([i for i in items if i.get("status") == "decided"])
     lines = [
         "Run store: %s" % root,
-        "Items: %d  (new %d, read %d, decided %d)" % (
+        "Items: %d  (new %d, read %d, proposed %d, decided %d)" % (
             len(items), by_status.get("new", 0), by_status.get("read", 0),
-            by_status.get("decided", 0)),
+            by_status.get("recommended", 0), by_status.get("decided", 0)),
         "Routes: " + "  ".join("%s %d" % (digestmod.LABEL[r], counts[r])
                                for r in scoring.ROUTES),
         "",
@@ -94,6 +95,95 @@ def tool_profile(root, args):
     if profile is None:
         return _fail("No profile at %s. Run 'cyft init' first." % root)
     return _text(json.dumps(profile, indent=2, sort_keys=True))
+
+
+def _editable_profile(root):
+    profile = store.load_profile(root)
+    if profile is None:
+        raise ValueError("No profile at %s. Run 'cyft init' first." % root)
+    if (not isinstance(profile, dict) or
+            not isinstance(profile.get("goals"), list) or
+            not isinstance(profile.get("constraints"), dict)):
+        raise ValueError("Profile has an unexpected shape; edit profile.json manually "
+                         "before using these tools.")
+    ids = []
+    for goal in profile["goals"]:
+        if not isinstance(goal, dict) or not isinstance(goal.get("id"), str) or not goal["id"]:
+            raise ValueError("Profile contains a goal without a valid id.")
+        if not isinstance(goal.get("name", ""), str):
+            raise ValueError("Profile contains a goal without a valid name.")
+        ids.append(goal["id"])
+    if len(ids) != len(set(ids)):
+        raise ValueError("Profile contains duplicate goal ids.")
+    return profile
+
+
+def _profile_field(args, field, limit, required=False):
+    value = args.get(field)
+    if field not in args:
+        if required:
+            raise ValueError("%s is required." % field)
+        return None
+    if (not isinstance(value, str) or len(value.strip()) > limit or
+            (required and not value.strip())):
+        raise ValueError("%s must be %s text of at most %d characters." %
+                         (field, "non-empty" if required else "string", limit))
+    return value.strip()
+
+
+def tool_set_goal(root, args):
+    try:
+        profile = _editable_profile(root)
+        goal_id = args.get("goal_id")
+        if goal_id is not None and (not isinstance(goal_id, str) or not goal_id):
+            raise ValueError("goal_id must be an existing goal id when supplied.")
+        name = _profile_field(args, "name", 200, required=True)
+        why = _profile_field(args, "why", 500)
+        stop_when = _profile_field(args, "stop_when", 500)
+        goals = profile["goals"]
+        if goal_id is None:
+            # Fill the blank starter goal so an initialized profile stays tidy,
+            # but never one a decision already points at: reusing its id would
+            # silently re-attribute that decision to the new goal.
+            referenced = {i.get("goal") for i in store.list_items(root)}
+            blank = next((g for g in goals if not (g.get("name") or "").strip()
+                          and g["id"] not in referenced), None)
+            if blank is None:
+                goal_id = "goal-" + uuid.uuid4().hex[:12]
+                blank = {"id": goal_id}
+                goals.append(blank)
+            else:
+                goal_id = blank["id"]
+            goal = blank
+        else:
+            goal = next((g for g in goals if g["id"] == goal_id), None)
+            if goal is None:
+                raise ValueError("Unknown goal id %r. Use cyft_profile to see the "
+                                 "existing ids." % goal_id)
+        goal["name"] = name
+        if why is not None:
+            goal["why"] = why
+        if stop_when is not None:
+            goal["stop_when"] = stop_when
+        store.save_profile(root, profile)
+        return _text("Saved goal %s. Existing decisions retain this goal id." % goal_id)
+    except ValueError as exc:
+        return _fail(str(exc))
+
+
+def tool_set_constraints(root, args):
+    fields = ("can_operate", "can_buy", "notes")
+    try:
+        profile = _editable_profile(root)
+        if not any(field in args for field in fields):
+            raise ValueError("Supply at least one of: %s." % ", ".join(fields))
+        updates = {field: _profile_field(args, field, 500)
+                   for field in fields if field in args}
+        profile["constraints"].update(updates)
+        store.save_profile(root, profile)
+        return _text("Saved constraints: %s." % ", ".join(updates))
+    except ValueError as exc:
+        return _fail(str(exc))
 
 
 def tool_add(root, args):
@@ -171,7 +261,8 @@ def tool_next_unread(root, args):
     content.append({"type": "text", "text":
                     "Now call cyft_record_reading with this item id, what it is, and the "
                     "claims made about it. Label a claim 'verified' only if you checked a "
-                    "primary source."})
+                    "primary source, and give its source URL, the passage you read there, "
+                    "and the date checked. Without all three it is stored as claimed."})
     return {"content": content, "isError": False}
 
 
@@ -192,15 +283,24 @@ def tool_record_reading(root, args):
     item["read_by"] = "mcp-client"
     store.save_item(root, item)
     kept = ", ".join("%s (%s)" % (c["text"][:40], c["label"]) for c in parsed["claims"])
-    return _text("Recorded %s: %s\nClaims kept: %s\nNext: cyft_next_unread, or "
-                 "cyft_next_undecided once reading is done."
-                 % (item["id"], item["what"], kept or "none"))
+    demoted = len([c for c in parsed["claims"] if c.get("demoted")])
+    body = "Recorded %s: %s\nClaims kept: %s" % (item["id"], item["what"], kept or "none")
+    if demoted:
+        body += ("\n%d claim(s) labelled verified were stored as claimed: %s."
+                 % (demoted, reading.DEMOTED))
+    return _text(body + "\nNext: cyft_next_unread, or cyft_next_undecided once "
+                 "reading is done.")
 
 
 def tool_next_undecided(root, args):
     profile = store.load_profile(root)
-    items = [i for i in store.list_items(root) if i.get("status") != "decided"]
+    everything = store.list_items(root)
+    waiting = len([i for i in everything if i.get("status") == "recommended"])
+    items = [i for i in everything if i.get("status") not in ("decided", "recommended")]
     if not items:
+        if waiting:
+            return _text("Nothing left to propose. %d proposal(s) await the person's "
+                         "confirmation." % waiting)
         return _text("Nothing left to decide.")
     read_first = [i for i in items if i.get("status") == "read"] or items
     item = read_first[0]
@@ -220,7 +320,8 @@ def tool_next_undecided(root, args):
               "Call cyft_decide with the goal id this serves, or 'none', or 'notmine'. "
               "When a goal is named, also give help (lot, some, little) and cost "
               "(hour, day, week). Cyft computes the route; you do not choose it, though "
-              "you may override it with the route argument if you disagree."]
+              "you may propose another with the route argument if you disagree. "
+              "Nothing is decided until the person confirms it with cyft_confirm."]
     return _text("\n".join(lines))
 
 
@@ -258,23 +359,55 @@ def tool_decide(root, args):
                      % (", ".join(map(str, unknown)), ", ".join(sorted(scoring.VETOES))))
     item["vetoes"] = vetoes
 
-    suggested, why = scoring.route(item, profile)
     override = args.get("route")
     if override is not None and override not in scoring.ROUTES:
         return _fail("route must be one of: %s" % ", ".join(scoring.ROUTES))
     try:
-        scoring.apply_route(item, profile, chosen=override,
-                            reason=args.get("reason") or why)
+        scoring.propose(item, profile, chosen=override, reason=args.get("reason"),
+                        by="mcp-client")
     except scoring.ScoringError as exc:
         return _fail(str(exc))
-    item["decided_by"] = "mcp-client"
     store.save_item(root, item)
 
-    note = "Filed %s under %s. Reason: %s" % (item["id"], item["route"], item["reason"])
-    if override and suggested and override != suggested:
-        note += "\n(You overrode the computed route, which was %s.)" % suggested
-    left = len([i for i in store.list_items(root) if i.get("status") != "decided"])
-    return _text(note + "\n%d item(s) still undecided." % left)
+    rec, prop = item["recommendation"], item["proposal"]
+    note = "Proposed %s for %s. Reason: %s" % (prop["route"], item["id"], prop["reason"])
+    if prop["overrides_recommendation"]:
+        note += "\n(This overrides Cyft's recommendation, which was %s: %s.)" % (
+            rec["route"], rec["reason"])
+    note += ("\nThis is not decided yet. Show the person the proposal and call "
+             "cyft_confirm only after they agree to it.")
+    left = len([i for i in store.list_items(root)
+                if i.get("status") not in ("decided", "recommended")])
+    return _text(note + "\n%d item(s) still without a proposal." % left)
+
+
+def tool_confirm(root, args):
+    ids = args.get("item_ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+        return _fail("item_ids must be a non-empty list of item ids.")
+    profile = store.load_profile(root)
+    done, problems = [], []
+    for item_id in ids:
+        item = _find(root, item_id)
+        if item is None:
+            problems.append("%s: no such item" % item_id)
+            continue
+        prop = item.get("proposal")
+        if item.get("status") != "recommended" or not prop:
+            problems.append("%s: nothing proposed to confirm" % item_id)
+            continue
+        try:
+            scoring.apply_route(item, profile, chosen=prop["route"], reason=prop["reason"],
+                                by="person-via-mcp-client")
+        except scoring.ScoringError as exc:
+            problems.append("%s: %s" % (item_id, exc))
+            continue
+        store.save_item(root, item)
+        done.append("%s under %s" % (item_id, item["route"]))
+    body = "Decided: %s" % (", ".join(done) or "none")
+    if problems:
+        body += "\nNot decided:\n  " + "\n  ".join(problems)
+    return {"content": [{"type": "text", "text": body}], "isError": not done}
 
 
 def tool_digest(root, args):
@@ -314,6 +447,39 @@ TOOLS = [
                        "and the constraints. Nothing is scored except against these.",
         "inputSchema": {"type": "object", "properties": {}},
         "handler": tool_profile,
+    },
+    {
+        "name": "cyft_set_goal",
+        "title": "Create or edit a goal",
+        "description": "Create a goal by name, or edit one using its existing goal_id. "
+                       "Omitted details stay unchanged; this never deletes goals or "
+                       "changes their ids.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal_id": {"type": "string", "description": "Existing id from cyft_profile when editing."},
+                "name": {"type": "string", "description": "Required goal name, up to 200 characters."},
+                "why": {"type": "string", "description": "Why this matters, up to 500 characters."},
+                "stop_when": {"type": "string", "description": "When to stop pursuing it, up to 500 characters."},
+            },
+            "required": ["name"],
+        },
+        "handler": tool_set_goal,
+    },
+    {
+        "name": "cyft_set_constraints",
+        "title": "Edit constraints",
+        "description": "Set one or more operating, buying or other limits. "
+                       "Omitted fields stay unchanged.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "can_operate": {"type": "string"},
+                "can_buy": {"type": "string"},
+                "notes": {"type": "string"},
+            },
+        },
+        "handler": tool_set_constraints,
     },
     {
         "name": "cyft_add",
@@ -359,13 +525,25 @@ TOOLS = [
                         "properties": {
                             "text": {"type": "string"},
                             "label": {"type": "string", "enum": list(reading.LABELS)},
+                            "source": {"type": "string",
+                                       "description": "http(s) URL checked. Required for verified."},
+                            "passage": {"type": "string",
+                                        "description": "The exact text read at source, "
+                                                       "up to %d characters. Required for "
+                                                       "verified." % reading.MAX_PASSAGE},
+                            "checked": {"type": "string",
+                                        "description": "Date checked, YYYY-MM-DD. "
+                                                       "Required for verified."},
                             **reading.PROVENANCE_PROPERTIES,
                         },
                         "required": ["text", "label"],
                     },
                     "description": "Use 'verified' only for something checked against a "
                                    "primary source such as the project's own repository "
-                                   "or licence file. Include known source and dates; these are caller assertions, not independent verification by Cyft.",
+                                   "or licence file, with source, passage and checked. "
+                                   "A verified claim missing any of them is stored as "
+                                   "claimed. Source kind and dates are caller assertions, "
+                                   "not independent verification by Cyft.",
                 },
             },
             "required": ["item_id", "what"],
@@ -384,9 +562,11 @@ TOOLS = [
         "name": "cyft_decide",
         "title": "Decide where an item goes",
         "description": "Give the goal it serves and, when it serves one, how much it "
-                       "helps and what a first try costs. Cyft computes the route from "
-                       "those and records the reasoning. A dealbreaker outranks any "
-                       "score. Pass route only to override the computed answer.",
+                       "helps and what a first try costs. Cyft computes its recommended "
+                       "route from those and records it as a proposal, not a decision. "
+                       "A dealbreaker outranks any score: an item with one can never be "
+                       "proposed or decided as act or test. Pass route only to propose "
+                       "something other than the recommendation.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -398,12 +578,29 @@ TOOLS = [
                 "vetoes": {"type": "array", "items": {
                     "type": "string", "enum": sorted(scoring.VETOES)}},
                 "route": {"type": "string", "enum": list(scoring.ROUTES),
-                          "description": "Only to override the computed route."},
+                          "description": "Only to propose a route other than Cyft's "
+                                         "recommendation."},
                 "reason": {"type": "string"},
             },
             "required": ["item_id", "goal"],
         },
         "handler": tool_decide,
+    },
+    {
+        "name": "cyft_confirm",
+        "title": "Confirm proposed decisions",
+        "description": "Turn proposals into decisions. Call this only after the person "
+                       "has seen each proposal in this conversation and said yes to it. "
+                       "Decisions are recorded as made by the person through you.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_ids": {"type": "array", "items": {"type": "string"},
+                             "description": "Items whose proposal the person accepted."},
+            },
+            "required": ["item_ids"],
+        },
+        "handler": tool_confirm,
     },
     {
         "name": "cyft_digest",

@@ -11,6 +11,8 @@ from datetime import date
 import json
 import os
 import re
+import time
+from urllib.parse import urlsplit
 
 from . import store
 from .providers import get as get_provider, text_block, image_block
@@ -20,12 +22,15 @@ MAX_CLAIMS = 8
 SOURCE_KINDS = ("capture", "repository", "license", "official-docs", "pricing-page",
                 "filing", "standard", "reproducible-observation", "third-party-report",
                 "analyst-judgment")
+# Metadata any claim may carry. The source itself is evidence and is kept only
+# on a verified claim that passes verified_evidence.
 PROVENANCE_PROPERTIES = {
-    "source": {"type": ["string", "null"], "description": "Source URL, path or reproducible observation; never fetched by Cyft."},
     "source_kind": {"type": ["string", "null"], "enum": [*SOURCE_KINDS, None]},
     "recorded": {"type": ["string", "null"], "description": "Date the caller recorded this claim, or null."},
     "as_of": {"type": ["string", "null"], "description": "Date of a changing value, if known."},
 }
+MAX_PASSAGE = 500
+DEMOTED = "verified without a cited passage, source URL and checked date"
 
 SYSTEM = (
     "You examine one saved item and report what it is and what is claimed about it.\n"
@@ -36,7 +41,9 @@ SYSTEM = (
     "\n"
     "Label every claim from this closed list:\n"
     "  verified   you checked a primary source: the project's own repository, licence "
-    "file, or official documentation\n"
+    "file, or official documentation. Give its URL as source, the exact passage you "
+    "read as passage, and the date you checked it as checked (YYYY-MM-DD). Without "
+    "all three the claim is stored as claimed\n"
     "  claimed    the item asserts it without evidence\n"
     "  inferred   your own reasonable reading, not stated outright\n"
     "  uncertain  you cannot tell\n"
@@ -59,11 +66,16 @@ SCHEMA = {
                 "properties": {
                     "text": {"type": "string"},
                     "label": {"type": "string", "enum": list(LABELS)},
+                    # Null unless verified.
+                    "source": {"type": ["string", "null"]},
+                    "passage": {"type": ["string", "null"]},
+                    "checked": {"type": ["string", "null"]},
                     **PROVENANCE_PROPERTIES,
                 },
                 # Strict structured output requires every property. Null means
-                # no known provenance; parsing omits it from the stored claim.
-                "required": ["text", "label", *PROVENANCE_PROPERTIES],
+                # unknown; parsing omits it from the stored claim.
+                "required": ["text", "label", "source", "passage", "checked",
+                             *PROVENANCE_PROPERTIES],
                 "additionalProperties": False,
             },
         },
@@ -136,9 +148,6 @@ def parse_reading(raw):
             if not isinstance(label, str) or label not in LABELS:
                 label = "uncertain"          # anything unrecognised is not a promotion
             claim = {"text": body.strip()[:300], "label": label}
-            source = entry.get("source")
-            if isinstance(source, str) and source.strip():
-                claim["source"] = source.strip()[:2000]
             source_kind = entry.get("source_kind")
             if isinstance(source_kind, str) and source_kind in SOURCE_KINDS:
                 claim["source_kind"] = source_kind
@@ -150,8 +159,42 @@ def parse_reading(raw):
                     except ValueError:
                         continue
                     claim[key] = value
+            if label == "verified":
+                evidence = verified_evidence(entry)
+                if evidence:
+                    claim.update(evidence)
+                else:
+                    claim["label"] = "claimed"
+                    claim["demoted"] = DEMOTED
             claims.append(claim)
     return {"what": what, "claims": claims}
+
+
+def verified_evidence(entry, today=None):
+    """Return {source, passage, checked} if the claim earns 'verified', else None.
+
+    The assistant's word is not evidence. A verified claim must say where it was
+    checked (an http(s) URL), quote what was read there, and say when.
+    """
+    source, passage, checked = (entry.get(k) for k in ("source", "passage", "checked"))
+    if not isinstance(source, str) or not _evidence_url(source.strip()):
+        return None
+    if not isinstance(passage, str) or not passage.strip():
+        return None
+    if not isinstance(checked, str):
+        return None
+    checked = checked.strip()
+    if not re.match(r"\d{4}-\d{2}-\d{2}$", checked):
+        return None                          # strptime would take 2026-1-2
+    try:
+        day = time.strptime(checked, "%Y-%m-%d")
+    except ValueError:
+        return None
+    today = today or time.strftime("%Y-%m-%d", time.gmtime())
+    if time.strftime("%Y-%m-%d", day) > today:
+        return None                          # a check that has not happened yet
+    return {"source": source.strip()[:500], "passage": passage.strip()[:MAX_PASSAGE],
+            "checked": checked}
 
 
 def read_item(root, cfg, item, provider=None):
@@ -166,3 +209,14 @@ def read_item(root, cfg, item, provider=None):
     store.save_item(root, item)
     return item
 
+
+def _evidence_url(value):
+    """An http(s) URL that names a host, so the source points somewhere."""
+    if re.search(r"\s", value):
+        return False
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(host)
