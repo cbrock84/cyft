@@ -90,6 +90,9 @@ item. A `.url` file expands into one item per link.
 
 `read` sends each new item to the model and records what it is and what is
 claimed, each claim labelled `verified`, `claimed`, `inferred` or `uncertain`.
+A claim keeps `verified` only if it carries the source URL that was checked, the
+passage read there, and the date it was checked. Without all three Cyft stores it
+as `claimed` and notes why, whoever labelled it.
 
 PDF text is extracted at intake with no external dependency. It is best effort:
 a scanned PDF has no text to find, and unusual font encodings can defeat it.
@@ -97,7 +100,11 @@ When the result does not survive grading it is recorded as unreadable rather
 than passed on as though it were text, and the reading prompt says so.
 
 `sort` asks three questions per item, suggests a route with its reasoning, and
-lets you override it. Dealbreakers override the score entirely.
+lets you override it. Dealbreakers override the score entirely, and an item with a
+dealbreaker can never be filed as act or test, by you or anyone else. Cyft's
+recommendation is stored on the item beside your decision, so an override is
+visible later and in the digest. Items your assistant has proposed a route for are
+shown with that proposal; press enter to accept it.
 
 `digest` reports what changed since you last marked one. If nothing changed it
 says so in one line.
@@ -153,7 +160,7 @@ claude mcp add cyft -- cyft --root /absolute/path/to/your/.cyft mcp
 Use an absolute `--root`. The server is started by your client in a working
 directory you do not control, so a relative path will not find your run store.
 
-Then say something like: *work through my cyft pile.* The eight tools are
+Then say something like: *work through my cyft pile.* The nine tools are
 
 | Tool | What it does |
 | --- | --- |
@@ -163,7 +170,8 @@ Then say something like: *work through my cyft pile.* The eight tools are
 | `cyft_next_unread` | The next item, with the screenshot attached |
 | `cyft_record_reading` | Store what it is and what is claimed |
 | `cyft_next_undecided` | The next item awaiting a decision, with its claims |
-| `cyft_decide` | Give goal, help and cost; Cyft computes the route |
+| `cyft_decide` | Give goal, help and cost; Cyft computes the route and records it as a proposal |
+| `cyft_confirm` | Turn proposals you agreed to into decisions |
 | `cyft_digest` | What changed |
 
 Two things hold here as everywhere else. Item content reaches your assistant
@@ -171,5 +179,11 @@ wrapped in a warning that it is data to describe and not instruction to follow,
 and nothing an item says can set its own route. Routes are computed from your
 answers, and a dealbreaker outranks any score.
 
-Decisions made this way are recorded with `decided_by: "mcp-client"`, so you can
-tell later which judgements were yours and which your assistant's.
+Your assistant proposes; you decide. `cyft_decide` stores a proposal with
+`status: recommended` and never a decision. Only `cyft_confirm`, which the
+assistant is told to call after you say yes, or your own `cyft sort`, sets
+`status: decided`. Each item keeps three records apart: `recommendation` (what
+Cyft computed), `proposal` (what the assistant suggested) and `decision` (what
+you accepted, with `decided_by` set to `person` from the CLI or
+`person-via-mcp-client` through your assistant). Cyft cannot prove a person
+pressed yes in a chat; the record says which path the decision came through.
