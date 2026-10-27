@@ -1,0 +1,45 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "cyft-saved-item-triage",
+  "version": "0.1.0",
+  "description": "Evaluate a saved item against a user's goals and constraints, with labeled evidence and a proposed route.",
+  "author": {
+    "name": "Chris Brock LLC"
+  },
+  "license": "Apache-2.0",
+  "repository": "https://github.com/cbrock84/cyft",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Cyft: Saved Item Triage",
+        "shortDescription": "Decide what to do with a link",
+        "longDescription": "Evaluate one saved link, repository reference, or pasted note against your stated goal and constraints. Cyft separates claims from verified facts, identifies practical dealbreakers, and proposes Act, Test, Watch, Reference, Reject, or Not mine with a reason and a small next step. You make the final decision. This conversational workflow does not save a backlog, synchronize external accounts, or execute a recommendation.",
+        "developerName": "Chris Brock LLC",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": [
+          "Help me triage this saved link against my current goal.",
+          "Is this repo worth trying for my project?",
+          "Sort this saved idea into act, test, watch, reference, or reject."
+        ],
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png",
+        "websiteURL": "https://chrisbrockllc.com/plugins",
+        "supportURL": "https://chrisbrockllc.com/plugins/support",
+        "privacyPolicyURL": "https://chrisbrockllc.com/plugins/privacy",
+        "termsOfServiceURL": "https://chrisbrockllc.com/plugins/terms"
+      },
+      "review": {
+        "prompts": [
+          "I saved this GitHub repo. My goal is to ship a small open source dashboard this month, with no paid hosting. Should I try it?",
+          "I copied this vendor pitch. My goal is to reduce manual reporting; customer data cannot leave our account. What should I do with it?",
+          "I have no goal in mind yet. Can you tell me whether this saved link is universally worth using?"
+        ]
+      },
+      "publication": {
+        "release_notes": "Initial conversational triage for one saved item, with goal-based routing and labeled evidence.",
+        "countries": []
+      }
+    }
+  }
+}
