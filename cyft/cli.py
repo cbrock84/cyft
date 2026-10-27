@@ -239,14 +239,13 @@ def cmd_sort(args):
             if chosen is None:
                 break
             try:
-                with store.locked(root):
-                    scoring.apply_route(item, profile, chosen=chosen or prop["route"],
-                                        reason=None if chosen and chosen != prop["route"]
-                                        else prop["reason"])
-                    store.stamp_decision(root, item)
-                    store.save_item(root, item)
+                item = _decide_fresh(root, profile, item, chosen=chosen or prop["route"],
+                                     reason=None if chosen and chosen != prop["route"]
+                                     else prop["reason"])
             except scoring.ScoringError as exc:
                 err("  %s" % exc)
+                continue
+            if item is None:
                 continue
             out("  Filed under %s" % item["route"])
             continue
@@ -285,16 +284,42 @@ def cmd_sort(args):
         if chosen is None:
             break
         try:
-            with store.locked(root):
-                scoring.apply_route(item, profile, chosen=chosen or None)
-                store.stamp_decision(root, item)
-                store.save_item(root, item)
+            item = _decide_fresh(root, profile, item, chosen=chosen or None)
         except scoring.ScoringError as exc:
             err("  %s" % exc)
+            continue
+        if item is None:
             continue
         out("  Filed under %s" % item["route"])
 
     return 0
+
+
+ANSWERS = ("goal", "help", "cost", "vetoes")
+
+
+def _decide_fresh(root, profile, shown, chosen=None, reason=None):
+    """Apply the person's answer to the item as it is now, not as it was shown.
+
+    Sort waits on a person, and the store is not locked while it does. If the
+    item was confirmed or re-proposed meanwhile, the answer was given to
+    something that no longer exists, so it is set aside and said so. Otherwise
+    only the person's answers are carried over, keeping anything else written
+    meanwhile, such as a new reading.
+    """
+    with store.locked(root):
+        current = store.read_json(store.item_path(root, shown["id"]))
+        if (current is None or current.get("status") == "decided" or
+                current.get("proposal") != shown.get("proposal")):
+            err("  Changed while you were answering, so not filed. Run sort again.")
+            return None
+        for key in ANSWERS:
+            if key in shown:
+                current[key] = shown[key]
+        scoring.apply_route(current, profile, chosen=chosen, reason=reason)
+        store.stamp_decision(root, current)
+        store.save_item(root, current)
+    return current
 
 
 def cmd_list(args):

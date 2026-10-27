@@ -94,7 +94,14 @@ def locked(root):
         if fcntl is not None:
             fcntl.flock(fd, fcntl.LOCK_EX)
         else:
-            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+            # LK_LOCK gives up after ten one-second tries; a long add or a slow
+            # reading can hold the lock longer than that, so wait instead.
+            while True:
+                try:
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.05)
         depth[key] = 1
         try:
             yield

@@ -336,7 +336,8 @@ def tool_record_reading(root, args):
 
     item["what"] = parsed["what"] or item.get("what", "")
     item["claims"] = parsed["claims"]
-    item["status"] = "read"
+    if item.get("status") in (None, "", "new", "read"):
+        item["status"] = "read"             # a re-reading never undoes a proposal or decision
     item["read_at"] = store.now()
     item["read_by"] = "mcp-client"
     store.save_item(root, item)
@@ -777,8 +778,9 @@ def public_tools(network=False):
 
 def _scrub(result, root):
     """Replace the store's location in reply text. A safety net, not the control."""
-    names = sorted({root, os.path.realpath(root), os.path.abspath(root)},
-                   key=len, reverse=True)
+    plain = {os.path.realpath(root), os.path.abspath(root)}
+    # An exception's text shows a path as repr() does, with backslashes doubled.
+    names = sorted(plain | {repr(name)[1:-1] for name in plain}, key=len, reverse=True)
     for block in result.get("content", []):
         if block.get("type") == "text":
             for name in names:
@@ -795,6 +797,8 @@ def handle(message, root, network=False):
     refuses anything but links and pasted text, and no reply names the store.
     Identity and choosing `root` per user are the caller's job, not this one's.
     """
+    if network:
+        root = os.path.abspath(root)
     response = _handle(message, root, network)
     if network and response and "result" in response:
         _scrub(response["result"], root)

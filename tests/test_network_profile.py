@@ -77,6 +77,36 @@ class NetworkProfile(unittest.TestCase):
         _, text = self.call("cyft_add", {"targets": ["https://example.com"]}, root=missing)
         self.assertNotIn(missing, text)
 
+    def test_relative_root_is_not_scrubbed_out_of_ordinary_words(self):
+        here = os.getcwd()
+        os.chdir(self.root)
+        try:
+            for root in (".", os.path.basename(self.root)):
+                if root != ".":
+                    os.chdir(os.path.dirname(self.root))
+                self.call("cyft_add", {"notes": [{"title": "t", "text": "a.b " + root}]},
+                          root=root)
+                _, text = self.call("cyft_next_unread", root=root)
+                self.assertIn("a.b " + root, text)
+                self.assertNotIn("your your", text)
+                item_id = text.split("Item id: ", 1)[1].split()[0]
+                self.call("cyft_record_reading", {"item_id": item_id, "what": "t"},
+                          root=root)
+        finally:
+            os.chdir(here)
+
+    def test_escaped_store_path_in_an_error_is_scrubbed(self):
+        # Exception text shows a path as repr() does, with backslashes doubled.
+        root = tempfile.mkdtemp(prefix="cyft\\net-")
+        try:
+            escaped = repr(root)[1:-1]
+            self.assertNotEqual(escaped, root)
+            result = {"content": [{"type": "text", "text": "failed: '%s'" % escaped}]}
+            mcp._scrub(result, root)
+            self.assertNotIn(escaped, result["content"][0]["text"])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
 
 class PastedText(unittest.TestCase):
     def setUp(self):
