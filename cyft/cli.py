@@ -140,6 +140,16 @@ def cmd_add(args):
         dupes += d
 
     out("%d added, %d already in the pile" % (added, dupes))
+    large = [(p, why) for p, why in skipped if intake.is_size_refusal(why)]
+    skipped = [(p, why) for p, why in skipped if not intake.is_size_refusal(why)]
+    if large:
+        out("")
+        out("%d file(s) not taken in, larger than %d MB:"
+            % (len(large), intake.MAX_FILE_BYTES // (1024 * 1024)))
+        for path, _ in large[:12]:
+            out("  %s" % intake.quoted(os.path.basename(path), 44))
+        if len(large) > 12:
+            out("  and %d more" % (len(large) - 12))
     if skipped:
         out("")
         out("%d file(s) left alone, because Cyft copies what it takes in and sends" % len(skipped))

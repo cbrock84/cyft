@@ -29,6 +29,11 @@ IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 URLLIST_EXT = {".url", ".webloc", ".urls"}
 SKIP_NAMES = {".DS_Store", "Thumbs.db"}
 
+# Intake reads a file whole to hash it. A stray video or disk image in a swept
+# folder would otherwise be loaded into memory and copied into the store.
+MAX_FILE_BYTES = 50 * 1024 * 1024
+MAX_TEXT_CHARS = 20000
+
 MEDIA_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".gif": "image/gif", ".webp": "image/webp",
@@ -214,7 +219,7 @@ def _add_bytes(root, path, data):
     if kind in ("text", "urllist"):
         # A link file with links in it is expanded by add_urllist, not here, so
         # anything reaching this point is treated as ordinary text.
-        item["text"] = data.decode("utf-8", "replace")[:20000]
+        item["text"] = data.decode("utf-8", "replace")[:MAX_TEXT_CHARS]
         item["kind"] = "text"
     elif kind == "pdf":
         # Best effort. An empty result means the text could not be trusted, which
@@ -288,16 +293,35 @@ def walk(paths, on_skip=None):
                 yield os.path.join(dirpath, name)
 
 
+TOO_LARGE = "it is larger than the %d MB intake limit"
+
+
+def too_large(path):
+    """Return why a file is too big to take in, or None."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return None
+    if size > MAX_FILE_BYTES:
+        return TOO_LARGE % (MAX_FILE_BYTES // (1024 * 1024))
+    return None
+
+
+def is_size_refusal(reason):
+    return reason.startswith(TOO_LARGE.split("%", 1)[0])
+
+
 def add_paths(root, paths, on_skip=None):
     """Add everything under `paths`, returning (added, duplicates).
 
-    Files that look like credentials are never taken in. `on_skip`, when given,
+    Files that look like credentials, and files over MAX_FILE_BYTES, are never
+    taken in. `on_skip`, when given,
     is called with (path, reason) for each one, so a caller can report them. The
     return shape is unchanged so existing callers keep working.
     """
     added = dupes = 0
     for path in walk(paths, on_skip=on_skip):
-        reason = looks_like_secret(path)
+        reason = looks_like_secret(path) or too_large(path)
         if reason:
             if on_skip is not None:
                 on_skip(path, reason)
