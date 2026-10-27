@@ -33,6 +33,9 @@ SKIP_NAMES = {".DS_Store", "Thumbs.db"}
 # folder would otherwise be loaded into memory and copied into the store.
 MAX_FILE_BYTES = 50 * 1024 * 1024
 MAX_TEXT_CHARS = 20000
+# Every distinct name or spelling an item arrived under, up to this many. The
+# count in `seen` keeps going past it.
+MAX_SOURCES = 50
 
 MEDIA_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -149,6 +152,20 @@ def urls_in(text):
     return re.findall(r"https?://[^\s\"'<>)\]]+", text or "")
 
 
+def _note_source(item, name):
+    """Record another sighting, keeping the name or URL spelling it came under."""
+    item["seen"] = item.get("seen", 1) + 1
+    sources = item.get("sources")
+    if not isinstance(sources, list):
+        # Saved before sources were kept: its own name is the first one.
+        sources = [{"name": item.get("url") or item.get("name") or "",
+                    "added_at": item.get("added_at", "")}]
+    if name not in [s.get("name") for s in sources] and len(sources) < MAX_SOURCES:
+        sources.append({"name": name, "added_at": store.now()})
+    item["sources"] = sources
+    return item
+
+
 def _blank_item(item_id, digest, kind, name):
     return {
         "id": item_id,
@@ -158,6 +175,7 @@ def _blank_item(item_id, digest, kind, name):
         "added_at": store.now(),
         "status": "new",
         "seen": 1,
+        "sources": [{"name": name, "added_at": store.now()}],
         "what": "",
         "claims": [],
         "url": "",
@@ -188,8 +206,7 @@ def _add_url(root, url):
                      if item.get("kind") == "url" and item.get("url")
                      and normalise_url(item["url"]) == key), None)
     if existing:
-        existing["seen"] = existing.get("seen", 1) + 1
-        store.save_item(root, existing)
+        store.save_item(root, _note_source(existing, url))
         return existing, False
     item = _blank_item(store.new_id(digest), digest, "url", url)
     item["url"] = url
@@ -208,8 +225,7 @@ def _add_bytes(root, path, data):
     digest = store.hash_bytes(data)
     existing = store.find_by_hash(root, digest)
     if existing:
-        existing["seen"] = existing.get("seen", 1) + 1
-        store.save_item(root, existing)
+        store.save_item(root, _note_source(existing, os.path.basename(path)))
         return existing, False
 
     kind = classify(path)
