@@ -176,7 +176,7 @@ cyft pile.* The twelve tools are
 | `cyft_profile` | The full profile |
 | `cyft_set_goal` | Create a goal or edit one by its existing id |
 | `cyft_set_constraints` | Set operating, buying and other limits |
-| `cyft_add` | Add files, folders or URLs |
+| `cyft_add` | Add files, folders, URLs or pasted text |
 | `cyft_next_unread` | The next item, with the screenshot attached |
 | `cyft_record_reading` | Store what it is and what is claimed |
 | `cyft_next_undecided` | The next item awaiting a decision, with its claims |

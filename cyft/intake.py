@@ -33,6 +33,7 @@ SKIP_NAMES = {".DS_Store", "Thumbs.db"}
 # folder would otherwise be loaded into memory and copied into the store.
 MAX_FILE_BYTES = 50 * 1024 * 1024
 MAX_TEXT_CHARS = 20000
+MAX_NOTE_CHARS = MAX_TEXT_CHARS
 # Every distinct name or spelling an item arrived under, up to this many. The
 # count in `seen` keeps going past it.
 MAX_SOURCES = 50
@@ -212,6 +213,27 @@ def _add_url(root, url):
     item["url"] = url
     store.save_item(root, item)
     return item, True
+
+
+def add_text(root, text, title=""):
+    """Take in pasted text. Identical text merges, keeping each title it came under.
+
+    The title is the caller's label; the text itself is never interpreted.
+    """
+    if not isinstance(text, str) or not text.strip() or len(text) > MAX_NOTE_CHARS:
+        raise ValueError("a note needs text of 1 to %d characters" % MAX_NOTE_CHARS)
+    name = (title or "").strip() or one_line(text.strip(), 60)
+    digest = store.hash_bytes(("note-v1\0" + text).encode("utf-8"))
+    with store.locked(root):
+        existing = store.find_by_hash(root, digest)
+        if existing:
+            store.save_item(root, _note_source(existing, name))
+            return existing, False
+        item = _blank_item(store.new_id(digest), digest, "text", name)
+        item["text"] = text
+        item["text_source"] = "pasted"
+        store.save_item(root, item)
+        return item, True
 
 
 def add_file(root, path):

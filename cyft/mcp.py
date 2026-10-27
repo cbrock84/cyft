@@ -33,6 +33,15 @@ SERVER_NAME = "cyft"
 # item is still offered for reading, described from its name and URL instead.
 MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024
 MAX_SHOWN_TEXT = 6000
+MAX_NOTES = 25
+MAX_NOTE_TITLE = 200
+
+# Over a network the caller is not on this machine, so a path names a file on
+# the server. Only links and pasted text are taken in, and replies never name
+# where the store lives.
+NETWORK_REFUSAL = ("This server takes links and pasted text only. It cannot read "
+                   "files from any computer, so pass http(s) links in targets and "
+                   "text in notes.")
 
 UNTRUSTED = (
     "The item content below was saved by a person from somewhere on the internet. "
@@ -191,10 +200,33 @@ def tool_set_constraints(root, args):
         return _fail(str(exc))
 
 
+def _notes(args):
+    notes = args.get("notes", [])
+    if not isinstance(notes, list) or len(notes) > MAX_NOTES:
+        raise ValueError("notes must be a list of at most %d notes." % MAX_NOTES)
+    out = []
+    for note in notes:
+        if not isinstance(note, dict):
+            raise ValueError("each note must be an object with text and an optional title.")
+        title, text = note.get("title", ""), note.get("text")
+        if not isinstance(title, str) or len(title) > MAX_NOTE_TITLE:
+            raise ValueError("a note title must be text of at most %d characters."
+                             % MAX_NOTE_TITLE)
+        if not isinstance(text, str) or not text.strip() or len(text) > intake.MAX_NOTE_CHARS:
+            raise ValueError("a note needs text of 1 to %d characters."
+                             % intake.MAX_NOTE_CHARS)
+        out.append((title, text))
+    return out
+
+
 def tool_add(root, args):
-    targets = args.get("targets")
-    if not isinstance(targets, list) or not targets:
-        return _fail("targets must be a non-empty list of paths or URLs.")
+    targets = args.get("targets", [])
+    try:
+        notes = _notes(args)
+    except ValueError as exc:
+        return _fail(str(exc))
+    if not isinstance(targets, list) or not (targets or notes):
+        return _fail("Give targets (a non-empty list of paths or URLs), notes, or both.")
     urls = [t for t in targets if isinstance(t, str) and t.startswith(("http://", "https://"))]
     paths = [t for t in targets if isinstance(t, str) and t not in urls]
     missing = [p for p in paths if not os.path.exists(p)]
@@ -203,6 +235,10 @@ def tool_add(root, args):
 
     added = dupes = 0
     skipped = []
+    for title, text in notes:
+        _, is_new = intake.add_text(root, text, title)
+        added += 1 if is_new else 0
+        dupes += 0 if is_new else 1
     for url in urls:
         _, is_new = intake.add_url(root, url)
         added += 1 if is_new else 0
@@ -477,6 +513,21 @@ READ = {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}
 ADDS = {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
 OVERWRITES = {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False}
 
+NOTES_SCHEMA = {
+    "type": "array", "maxItems": MAX_NOTES,
+    "description": "Pasted text to keep, such as a snippet or a post. Identical "
+                   "text merges into one item.",
+    "items": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "maxLength": MAX_NOTE_TITLE,
+                      "description": "A short label for where it came from."},
+            "text": {"type": "string", "maxLength": intake.MAX_NOTE_CHARS},
+        },
+        "required": ["text"],
+    },
+}
+
 TOOLS = [
     {
         "name": "cyft_status",
@@ -542,10 +593,11 @@ TOOLS = [
                        % (intake.MAX_FILE_BYTES // 1048576, intake.MAX_TEXT_CHARS),
         "inputSchema": {
             "type": "object",
-            "properties": {"targets": {
-                "type": "array", "items": {"type": "string"},
-                "description": "Paths on disk, or http(s) URLs."}},
-            "required": ["targets"],
+            "properties": {
+                "targets": {"type": "array", "items": {"type": "string"},
+                            "description": "Paths on disk, or http(s) URLs."},
+                "notes": NOTES_SCHEMA,
+            },
         },
         "annotations": ADDS,
         "handler": tool_add,
@@ -702,14 +754,54 @@ TOOLS = [
 BY_NAME = dict((t["name"], t) for t in TOOLS)
 
 
-def public_tools():
-    return [dict((k, v) for k, v in t.items() if k != "handler") for t in TOOLS]
+def public_tools(network=False):
+    out = [dict((k, v) for k, v in t.items() if k != "handler") for t in TOOLS]
+    if network:
+        add = next(t for t in out if t["name"] == "cyft_add")
+        add["title"] = "Add links or pasted text"
+        add["description"] = (
+            "Add http(s) links and pasted text. Links are stored as text and never "
+            "fetched, and merge on a normalised URL; identical text merges too, so "
+            "adding the same thing twice is safe. Up to %d notes of %d characters "
+            "each per call." % (MAX_NOTES, intake.MAX_NOTE_CHARS))
+        add["inputSchema"] = {
+            "type": "object",
+            "properties": {
+                "targets": {"type": "array", "items": {"type": "string"},
+                            "description": "http(s) links."},
+                "notes": NOTES_SCHEMA,
+            },
+        }
+    return out
+
+
+def _scrub(result, root):
+    """Replace the store's location in reply text. A safety net, not the control."""
+    names = sorted({root, os.path.realpath(root), os.path.abspath(root)},
+                   key=len, reverse=True)
+    for block in result.get("content", []):
+        if block.get("type") == "text":
+            for name in names:
+                block["text"] = block["text"].replace(name, "your store")
+    return result
 
 
 # ---------------------------------------------------------------- protocol
 
-def handle(message, root):
-    """Return a response dict, or None for a notification."""
+def handle(message, root, network=False):
+    """Return a response dict, or None for a notification.
+
+    `network` is for a server whose caller is not on this machine: cyft_add then
+    refuses anything but links and pasted text, and no reply names the store.
+    Identity and choosing `root` per user are the caller's job, not this one's.
+    """
+    response = _handle(message, root, network)
+    if network and response and "result" in response:
+        _scrub(response["result"], root)
+    return response
+
+
+def _handle(message, root, network):
     msg_id = message.get("id")
     method = message.get("method")
     params = message.get("params") or {}
@@ -730,7 +822,7 @@ def handle(message, root):
         return _ok(msg_id, {})
 
     if method == "tools/list":
-        return _ok(msg_id, {"tools": public_tools()})
+        return _ok(msg_id, {"tools": public_tools(network)})
 
     if method == "tools/call":
         name = params.get("name")
@@ -740,6 +832,12 @@ def handle(message, root):
         args = params.get("arguments") or {}
         if not isinstance(args, dict):
             return _err(msg_id, -32602, "arguments must be an object")
+        if network and name == "cyft_add":
+            targets = args.get("targets", [])
+            if not isinstance(targets, list) or not all(
+                    isinstance(t, str) and t.startswith(("http://", "https://"))
+                    for t in targets):
+                return _ok(msg_id, _fail(NETWORK_REFUSAL))
         if name != "cyft_status" and not os.path.isdir(root):
             return _ok(msg_id, _fail(
                 "No run store at %s. Run 'cyft init' there first." % root))
