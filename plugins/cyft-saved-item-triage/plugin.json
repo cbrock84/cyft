@@ -21,7 +21,9 @@
           "Help me triage this saved link against my current goal.",
           "Is this repo worth trying for my project?",
           "Sort this saved idea into act, test, watch, reference, or reject."
-        ]
+        ],
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png"
       },
       "review": {
         "prompts": [
