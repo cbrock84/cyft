@@ -663,7 +663,12 @@ def handle(message, root):
             return _ok(msg_id, _fail(
                 "No run store at %s. Run 'cyft init' there first." % root))
         try:
-            return _ok(msg_id, tool["handler"](root, args))
+            if name == "cyft_status" and not os.path.isdir(root):
+                return _ok(msg_id, tool["handler"](root, args))
+            # One tool call is one transaction: its reads and its writes happen
+            # under the store lock, so a concurrent call cannot lose its update.
+            with store.locked(root):
+                return _ok(msg_id, tool["handler"](root, args))
         except Exception as exc:                       # a tool fault, not a protocol one
             log("%s raised %s: %s" % (name, type(exc).__name__, exc))
             return _ok(msg_id, _fail("%s failed: %s" % (name, exc)))

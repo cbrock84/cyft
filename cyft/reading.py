@@ -202,11 +202,19 @@ def read_item(root, cfg, item, provider=None):
     raw = provider.complete(SYSTEM, blocks_for(root, item), SCHEMA,
                             int(cfg.get("max_output_tokens", 2000)))
     reading = parse_reading(raw)
-    item["what"] = reading["what"] or item.get("what", "")
-    item["claims"] = reading["claims"]
-    item["status"] = "read"
-    item["read_at"] = store.now()
-    store.save_item(root, item)
+    # The provider call can take a while, and the store is not locked during it.
+    # Apply the reading to the item as it is now, so a proposal or decision made
+    # meanwhile through MCP is kept rather than overwritten by a stale copy.
+    with store.locked(root):
+        current = store.read_json(store.item_path(root, item["id"])) or item
+        current["what"] = reading["what"] or current.get("what", "")
+        current["claims"] = reading["claims"]
+        if current.get("status") in (None, "", "new", "read"):
+            current["status"] = "read"
+        current["read_at"] = store.now()
+        store.save_item(root, current)
+    item.clear()
+    item.update(current)
     return item
 
 

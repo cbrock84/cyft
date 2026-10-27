@@ -169,6 +169,11 @@ def _blank_item(item_id, digest, kind, name):
 
 
 def add_url(root, url):
+    with store.locked(root):
+        return _add_url(root, url)
+
+
+def _add_url(root, url):
     key = normalise_url(url)
     # Compare stored URLs too: older records used an all-lowercase hash. Do not
     # rewrite their identities, lose their decisions, or overwrite an old item
@@ -190,6 +195,11 @@ def add_url(root, url):
 def add_file(root, path):
     with open(path, "rb") as fh:
         data = fh.read()
+    with store.locked(root):
+        return _add_bytes(root, path, data)
+
+
+def _add_bytes(root, path, data):
     digest = store.hash_bytes(data)
     existing = store.find_by_hash(root, digest)
     if existing:

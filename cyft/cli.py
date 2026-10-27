@@ -229,13 +229,14 @@ def cmd_sort(args):
             if chosen is None:
                 break
             try:
-                scoring.apply_route(item, profile, chosen=chosen or prop["route"],
-                                    reason=None if chosen and chosen != prop["route"]
-                                    else prop["reason"])
+                with store.locked(root):
+                    scoring.apply_route(item, profile, chosen=chosen or prop["route"],
+                                        reason=None if chosen and chosen != prop["route"]
+                                        else prop["reason"])
+                    store.save_item(root, item)
             except scoring.ScoringError as exc:
                 err("  %s" % exc)
                 continue
-            store.save_item(root, item)
             out("  Filed under %s" % item["route"])
             continue
 
@@ -273,11 +274,12 @@ def cmd_sort(args):
         if chosen is None:
             break
         try:
-            scoring.apply_route(item, profile, chosen=chosen or None)
+            with store.locked(root):
+                scoring.apply_route(item, profile, chosen=chosen or None)
+                store.save_item(root, item)
         except scoring.ScoringError as exc:
             err("  %s" % exc)
             continue
-        store.save_item(root, item)
         out("  Filed under %s" % item["route"])
 
     return 0
