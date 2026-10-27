@@ -106,8 +106,12 @@ recommendation is stored on the item beside your decision, so an override is
 visible later and in the digest. Items your assistant has proposed a route for are
 shown with that proposal; press enter to accept it.
 
-`digest` reports what changed since you last marked one. If nothing changed it
-says so in one line.
+`digest` reports decisions made since you last marked one. If nothing changed it
+says so in one line. `--mark` advances the read marker in the same step. Each
+decision gets the next number in the store, and the marker records a number, not a
+time, so a decision made in the same second as a mark is never skipped. Over MCP,
+`cyft_digest` only reads and reports a cursor; `cyft_digest_mark` with that cursor
+marks it, so anything decided after the person saw the digest stays unread.
 
 ## What ends up on disk
 
@@ -115,7 +119,8 @@ says so in one line.
 .cyft/
   profile.json          your goals and constraints
   config.json           provider and model, mode 0600, no key in it
-  state.json            digest watermark
+  state.json            digest read marker and decision counter
+  .lock                 held while a command or tool call writes
   items/<id>/item.json  one record per distinct thing
   items/<id>/original.* the bytes you supplied
 ```
@@ -163,7 +168,7 @@ directory you do not control, so a relative path will not find your run store.
 After `cyft init`, you can ask your MCP client to set your first goal and
 constraints in conversation, then add items to the pile. Review the saved
 profile before routing decisions. Then say something like: *work through my
-cyft pile.* The eleven tools are
+cyft pile.* The twelve tools are
 
 | Tool | What it does |
 | --- | --- |
@@ -177,7 +182,8 @@ cyft pile.* The eleven tools are
 | `cyft_next_undecided` | The next item awaiting a decision, with its claims |
 | `cyft_decide` | Give goal, help and cost; Cyft computes the route and records it as a proposal |
 | `cyft_confirm` | Turn proposals you agreed to into decisions |
-| `cyft_digest` | What changed |
+| `cyft_digest` | What changed (read-only; reports a cursor) |
+| `cyft_digest_mark` | Mark a digest read through its cursor |
 
 Two things hold here as everywhere else. Item content reaches your assistant
 wrapped in a warning that it is data to describe and not instruction to follow,

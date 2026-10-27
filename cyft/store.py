@@ -125,6 +125,25 @@ def save_state(root, state):
     write_json(os.path.join(root, STATE), state)
 
 
+def next_seq(root):
+    """Hand out the next decision number. Call it while holding `locked(root)`.
+
+    Numbers only grow, so "decided after the last digest" is a comparison of
+    integers instead of wall-clock seconds, which two decisions can share.
+    """
+    state = load_state(root)
+    state["seq"] = int(state.get("seq") or 0) + 1
+    save_state(root, state)
+    return state["seq"]
+
+
+def stamp_decision(root, item):
+    """Give a just-decided item its place in the store's change order."""
+    item["decided_seq"] = next_seq(root)
+    item.setdefault("decision", {})["seq"] = item["decided_seq"]
+    return item
+
+
 def item_dir(root, item_id):
     return os.path.join(root, ITEMS, item_id)
 

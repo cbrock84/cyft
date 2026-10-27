@@ -402,6 +402,7 @@ def tool_confirm(root, args):
         except scoring.ScoringError as exc:
             problems.append("%s: %s" % (item_id, exc))
             continue
+        store.stamp_decision(root, item)
         store.save_item(root, item)
         done.append("%s under %s" % (item_id, item["route"]))
     body = "Decided: %s" % (", ".join(done) or "none")
@@ -411,15 +412,30 @@ def tool_confirm(root, args):
 
 
 def tool_digest(root, args):
+    if args.get("mark"):
+        # Marking used to ride along here, which made reading a digest a write.
+        return _fail("cyft_digest only reads. To mark a digest as read, call "
+                     "cyft_digest_mark with the cursor this tool reports.")
     state = store.load_state(root)
     items = store.list_items(root)
-    since = None if args.get("all") else state.get("last_digest")
-    text = digestmod.render(items, since)
-    if args.get("mark"):
-        state["last_digest"] = store.now()
-        store.save_state(root, state)
-        text += "\n(Marked. The next digest starts from here.)"
-    return _text(text)
+    text = digestmod.render(items, None if args.get("all") else state)
+    cursor = int(state.get("seq") or 0)
+    return _text(text + "\nDigest cursor: %d. After the person has seen this digest, "
+                 "call cyft_digest_mark with through=%d. Nothing is marked until then."
+                 % (cursor, cursor))
+
+
+def tool_digest_mark(root, args):
+    through = args.get("through")
+    state = store.load_state(root)
+    issued = int(state.get("seq") or 0)
+    if isinstance(through, bool) or not isinstance(through, int) or not 0 <= through <= issued:
+        return _fail("through must be the whole-number cursor a digest reported, "
+                     "between 0 and %d." % issued)
+    digestmod.mark(state, through)
+    store.save_state(root, state)
+    return _text("Marked through %d. The next digest shows decisions made after that."
+                 % state["digest_seq"])
 
 
 def _find(root, item_id):
@@ -605,16 +621,34 @@ TOOLS = [
     {
         "name": "cyft_digest",
         "title": "What changed",
-        "description": "Decisions since the last marked digest. Says so in one line when "
-                       "nothing is new.",
+        "description": "Decisions confirmed since the digest was last marked as read, "
+                       "grouped by route, plus how many proposals still await the "
+                       "person. Says so in one line when nothing is new. Read-only: it "
+                       "reports a cursor, and only cyft_digest_mark advances the marker.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "all": {"type": "boolean", "description": "Everything, not just what is new."},
-                "mark": {"type": "boolean", "description": "Mark this digest as read."},
             },
         },
         "handler": tool_digest,
+    },
+    {
+        "name": "cyft_digest_mark",
+        "title": "Mark a digest as read",
+        "description": "Advance the digest read marker to the cursor a cyft_digest call "
+                       "reported, so those decisions are not shown again. Decisions "
+                       "confirmed after that digest stay unread. The marker never moves "
+                       "backwards. Changes no items.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "through": {"type": "integer", "minimum": 0,
+                            "description": "The cursor from the digest the person saw."},
+            },
+            "required": ["through"],
+        },
+        "handler": tool_digest_mark,
     },
 ]
 

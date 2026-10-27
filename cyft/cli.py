@@ -233,6 +233,7 @@ def cmd_sort(args):
                     scoring.apply_route(item, profile, chosen=chosen or prop["route"],
                                         reason=None if chosen and chosen != prop["route"]
                                         else prop["reason"])
+                    store.stamp_decision(root, item)
                     store.save_item(root, item)
             except scoring.ScoringError as exc:
                 err("  %s" % exc)
@@ -276,6 +277,7 @@ def cmd_sort(args):
         try:
             with store.locked(root):
                 scoring.apply_route(item, profile, chosen=chosen or None)
+                store.stamp_decision(root, item)
                 store.save_item(root, item)
         except scoring.ScoringError as exc:
             err("  %s" % exc)
@@ -308,14 +310,15 @@ def cmd_list(args):
 def cmd_digest(args):
     root = resolve_root(args)
     require_store(root)
-    state = store.load_state(root)
-    items = store.list_items(root)
-    text = digestmod.render(items, None if args.all else state.get("last_digest"))
-    out(text)
-    if args.mark:
-        state["last_digest"] = store.now()
-        store.save_state(root, state)
-        out("Marked. The next digest starts from here.")
+    with store.locked(root):
+        state = store.load_state(root)
+        items = store.list_items(root)
+        out(digestmod.render(items, None if args.all else state))
+        if args.mark:
+            # Rendered and marked under one lock, so nothing decided in between
+            # can fall behind the marker unseen.
+            store.save_state(root, digestmod.mark(state, int(state.get("seq") or 0)))
+            out("Marked. The next digest starts from here.")
     return 0
 
 
