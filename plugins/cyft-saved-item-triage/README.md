@@ -12,6 +12,6 @@ The route table and vetoes mirror [`cyft/scoring.py`](../../cyft/scoring.py), an
 
 ## Public listing preparation
 
-The package includes the initial listing, review prompts, all-available-country targeting, release notes, and an icon. Before uploading to the Developer Portal, verify and add the four required published HTTPS listing pages under `extensions.com.openai.interface`: `websiteURL`, `supportURL`, `privacyPolicyURL`, and `termsOfServiceURL`. The pages must accurately describe this plugin and its actual data practices. The source does not assert these URLs or policies without verification.
+The package includes the initial listing, review prompts, all-available-country targeting, release notes, and an icon. The four published HTTPS listing pages are included under `extensions.com.openai.interface`: `websiteURL`, `supportURL`, `privacyPolicyURL`, and `termsOfServiceURL`. The publisher hub, support, privacy, and terms pages were checked live after publication on October 27, 2026; each identifies Cyft or the skills-only plugins and its relevant purpose. Recheck them before upload.
 
 For a skills-only plugin, MCP review cases, a demo recording, and reviewer credentials are not required. This source has not been submitted or published. If packaging it into a ZIP, include this plugin directory as the sole top-level folder and inspect the resulting archive.
