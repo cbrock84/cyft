@@ -7,6 +7,8 @@
     cyft sort                 score and route, one item at a time
     cyft list                 what is where, and why
     cyft digest               what changed since last time
+    cyft export FILE.zip      everything you put in and decided, in one zip
+    cyft forget --yes         delete every item, digest, the profile and the state
     cyft mcp                  serve over stdio, so your assistant does the reading
 """
 
@@ -357,6 +359,34 @@ def cmd_digest(args):
     return 0
 
 
+def cmd_export(args):
+    root = resolve_root(args)
+    require_store(root)
+    dest = os.path.abspath(args.dest)
+    if os.path.exists(dest):
+        err("%s already exists. Choose a new file name." % dest)
+        return 2
+    try:
+        store.export(root, dest)
+    except ValueError as exc:
+        err(str(exc))
+        return 2
+    out("Exported to %s" % dest)
+    return 0
+
+
+def cmd_forget(args):
+    root = resolve_root(args)
+    require_store(root)
+    if not args.yes:
+        err("This deletes every item, digest, the profile and the state in %s.\n"
+            "Run cyft export first to keep a copy, then: cyft forget --yes" % root)
+        return 2
+    store.forget(root)
+    out("Deleted. Provider settings were kept.")
+    return 0
+
+
 def cmd_mcp(args):
     """Speak MCP on stdio so the assistant you already use does the reading.
 
@@ -454,6 +484,14 @@ def build_parser():
     s = sub.add_parser("list", help="show decisions")
     s.add_argument("--route", choices=list(scoring.ROUTES))
     s.set_defaults(func=cmd_list)
+
+    s = sub.add_parser("export", help="write everything to one zip")
+    s.add_argument("dest", help="zip file to create, outside the run store")
+    s.set_defaults(func=cmd_export)
+
+    s = sub.add_parser("forget", help="delete all items, digests, profile and state")
+    s.add_argument("--yes", action="store_true", help="confirm the delete")
+    s.set_defaults(func=cmd_forget)
 
     s = sub.add_parser("mcp", help="run as an MCP server over stdio")
     s.set_defaults(func=cmd_mcp)

@@ -128,6 +128,16 @@ marks it, so anything decided after the person saw the digest stays unread.
 Plain files. Read them with anything. Nothing is uploaded except the item being
 read, to the provider you configured.
 
+### Taking it out, or wiping it
+
+```
+cyft export ~/cyft-backup.zip   profile, state, items and digests; never config.json
+cyft forget --yes               delete all of that; provider settings stay
+```
+
+`export` refuses to write inside the store or over an existing file. `forget`
+does nothing without `--yes`.
+
 ## Costs
 
 One screenshot is roughly 1,800 input and 400 output tokens. Check your

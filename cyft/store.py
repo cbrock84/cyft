@@ -15,9 +15,11 @@ import errno
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import threading
 import time
+import zipfile
 
 try:
     import fcntl
@@ -193,6 +195,68 @@ def hash_bytes(data):
 def new_id(digest):
     """Short, stable, derived from content so a re-add lands on the same id."""
     return digest[:12]
+
+
+# Files that belong to the user. config.json is a setting, not their data, and
+# names the environment variable that holds a key; .lock is bookkeeping.
+USER_FILES = (PROFILE, STATE)
+USER_DIRS = (ITEMS, DIGESTS)
+
+
+def _inside(path, root):
+    path, root = os.path.realpath(path), os.path.realpath(root)
+    return path == root or path.startswith(root + os.sep)
+
+
+def export(root, dest):
+    """Write everything the user put in, and everything decided, to one zip."""
+    if _inside(dest, root):
+        raise ValueError("export must be written outside the run store")
+    with locked(root):
+        with zipfile.ZipFile(dest, "x", zipfile.ZIP_DEFLATED) as zf:
+            for name in USER_FILES:
+                path = os.path.join(root, name)
+                if os.path.isfile(path):
+                    zf.write(path, name)
+            for sub in USER_DIRS:
+                for base, dirs, files in os.walk(os.path.join(root, sub)):
+                    dirs.sort()
+                    for name in sorted(files):
+                        if name.startswith("."):
+                            continue
+                        path = os.path.join(base, name)
+                        if os.path.islink(path):
+                            continue
+                        zf.write(path, os.path.relpath(path, root).replace(os.sep, "/"))
+    return dest
+
+
+def forget(root):
+    """Delete every item, digest, the profile and the state. Settings stay."""
+    with locked(root):
+        for sub in USER_DIRS:
+            path = os.path.join(root, sub)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+        for name in USER_FILES:
+            path = os.path.join(root, name)
+            if os.path.exists(path):
+                os.unlink(path)
+        ensure(root)
+
+
+def user_root(base, subject, issuer=""):
+    """One store per signed-in user, named by a hash so no subject reaches a path.
+
+    The issuer is part of the hash: two identity providers can issue the same
+    subject string for different people.
+    """
+    if not isinstance(subject, str) or not subject:
+        raise ValueError("a user root needs a non-empty subject")
+    if not isinstance(issuer, str):
+        raise ValueError("issuer must be a string")
+    key = hashlib.sha256(("cyft-user-v1\0%s\0%s" % (issuer, subject)).encode("utf-8"))
+    return os.path.join(os.path.abspath(base), "users", key.hexdigest()[:32])
 
 
 def now():
