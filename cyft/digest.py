@@ -3,25 +3,47 @@
 If a run turns up nothing new it says so in one line, which is a complete answer.
 """
 
+from . import store
 from .scoring import ROUTES
 
 LABEL = {"act": "Act", "test": "Test", "watch": "Watch",
          "reference": "Reference", "reject": "Reject", "notmine": "Not mine"}
 
 
-def since(items, timestamp):
+def since(items, marker):
+    """Decided items the reader has not been shown.
+
+    `marker` is the store state ({"digest_seq": n, "last_digest": time}) or, for
+    older callers, a bare timestamp. An item stamped with a decision number is
+    new when that number is above the marked one. Items decided before numbers
+    existed fall back to their timestamp, as they always did.
+    """
+    if isinstance(marker, dict):
+        seq, timestamp = marker.get("digest_seq"), marker.get("last_digest")
+    else:
+        seq, timestamp = None, marker
     out = []
     for it in items:
         if it.get("status") != "decided":
             continue
-        if timestamp and (it.get("decided_at") or "") <= timestamp:
+        if seq is not None and isinstance(it.get("decided_seq"), int):
+            if it["decided_seq"] <= seq:
+                continue
+        elif timestamp and (it.get("decided_at") or "") <= timestamp:
             continue
         out.append(it)
     return out
 
 
-def render(items, timestamp=None):
-    fresh = since(items, timestamp)
+def mark(state, through):
+    """Advance the read marker to decision number `through`. Never backwards."""
+    state["digest_seq"] = max(int(state.get("digest_seq") or 0), through)
+    state["last_digest"] = store.now()
+    return state
+
+
+def render(items, marker=None):
+    fresh = since(items, marker)
     waiting = len([i for i in items if i.get("status") == "recommended"])
     tail = ("%d proposal(s) await your confirmation.\n" % waiting) if waiting else ""
     if not fresh:

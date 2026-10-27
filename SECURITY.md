@@ -53,6 +53,15 @@ rejects path traversal and links, caps size, count, depth and compression ratio,
 executes anything, and never honors an archive-supplied file mode. Details in
 `intake.md`.
 
+## Size limits
+
+- Intake refuses any file over 50 MB and names it, rather than reading it into memory.
+- Text is kept up to 20,000 characters per item, and up to 6,000 are shown to an
+  assistant when it reads the item.
+- A screenshot over 4 MB is not sent inline over MCP; the assistant is told why.
+- A quoted evidence passage on a verified claim is kept up to 500 characters.
+- Links are stored as text. Nothing fetches them.
+
 ## Reporting a vulnerability
 
 Open a GitHub security advisory on this repository rather than a public issue. If you

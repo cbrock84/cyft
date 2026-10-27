@@ -140,6 +140,16 @@ def cmd_add(args):
         dupes += d
 
     out("%d added, %d already in the pile" % (added, dupes))
+    large = [(p, why) for p, why in skipped if intake.is_size_refusal(why)]
+    skipped = [(p, why) for p, why in skipped if not intake.is_size_refusal(why)]
+    if large:
+        out("")
+        out("%d file(s) not taken in, larger than %d MB:"
+            % (len(large), intake.MAX_FILE_BYTES // (1024 * 1024)))
+        for path, _ in large[:12]:
+            out("  %s" % intake.quoted(os.path.basename(path), 44))
+        if len(large) > 12:
+            out("  and %d more" % (len(large) - 12))
     if skipped:
         out("")
         out("%d file(s) left alone, because Cyft copies what it takes in and sends" % len(skipped))
@@ -229,13 +239,14 @@ def cmd_sort(args):
             if chosen is None:
                 break
             try:
-                scoring.apply_route(item, profile, chosen=chosen or prop["route"],
-                                    reason=None if chosen and chosen != prop["route"]
-                                    else prop["reason"])
+                item = _decide_fresh(root, profile, item, chosen=chosen or prop["route"],
+                                     reason=None if chosen and chosen != prop["route"]
+                                     else prop["reason"])
             except scoring.ScoringError as exc:
                 err("  %s" % exc)
                 continue
-            store.save_item(root, item)
+            if item is None:
+                continue
             out("  Filed under %s" % item["route"])
             continue
 
@@ -273,14 +284,42 @@ def cmd_sort(args):
         if chosen is None:
             break
         try:
-            scoring.apply_route(item, profile, chosen=chosen or None)
+            item = _decide_fresh(root, profile, item, chosen=chosen or None)
         except scoring.ScoringError as exc:
             err("  %s" % exc)
             continue
-        store.save_item(root, item)
+        if item is None:
+            continue
         out("  Filed under %s" % item["route"])
 
     return 0
+
+
+ANSWERS = ("goal", "help", "cost", "vetoes")
+
+
+def _decide_fresh(root, profile, shown, chosen=None, reason=None):
+    """Apply the person's answer to the item as it is now, not as it was shown.
+
+    Sort waits on a person, and the store is not locked while it does. If the
+    item was confirmed or re-proposed meanwhile, the answer was given to
+    something that no longer exists, so it is set aside and said so. Otherwise
+    only the person's answers are carried over, keeping anything else written
+    meanwhile, such as a new reading.
+    """
+    with store.locked(root):
+        current = store.read_json(store.item_path(root, shown["id"]))
+        if (current is None or current.get("status") == "decided" or
+                current.get("proposal") != shown.get("proposal")):
+            err("  Changed while you were answering, so not filed. Run sort again.")
+            return None
+        for key in ANSWERS:
+            if key in shown:
+                current[key] = shown[key]
+        scoring.apply_route(current, profile, chosen=chosen, reason=reason)
+        store.stamp_decision(root, current)
+        store.save_item(root, current)
+    return current
 
 
 def cmd_list(args):
@@ -306,14 +345,15 @@ def cmd_list(args):
 def cmd_digest(args):
     root = resolve_root(args)
     require_store(root)
-    state = store.load_state(root)
-    items = store.list_items(root)
-    text = digestmod.render(items, None if args.all else state.get("last_digest"))
-    out(text)
-    if args.mark:
-        state["last_digest"] = store.now()
-        store.save_state(root, state)
-        out("Marked. The next digest starts from here.")
+    with store.locked(root):
+        state = store.load_state(root)
+        items = store.list_items(root)
+        out(digestmod.render(items, None if args.all else state))
+        if args.mark:
+            # Rendered and marked under one lock, so nothing decided in between
+            # can fall behind the marker unseen.
+            store.save_state(root, digestmod.mark(state, int(state.get("seq") or 0)))
+            out("Marked. The next digest starts from here.")
     return 0
 
 
