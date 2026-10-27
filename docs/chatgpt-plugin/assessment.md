@@ -5,6 +5,29 @@ Status: research only. No code has changed. Section 6 lists questions that are s
 Read-only. Checkout: `cbrock84/cyft` main at `9c07e34` (after PR #6). Docs read 2026-10-05.
 `cbrock84/operator-notes` is outside this session's repo scope and was not read.
 
+## 0. Status update (2026-10-27)
+
+Since this assessment, these gaps are fixed on main (PRs #9-#13) or in PR #14:
+
+| Gap (section) | Fix |
+| --- | --- |
+| Profile editing (2.1) | `cyft_set_goal`, `cyft_set_constraints` (#12) |
+| Claim evidence (2.2) | `verified` needs source URL, passage and checked date, else stored as `claimed` (#13, #11) |
+| Override beats dealbreaker (2.3) | A dealbreaker blocks act/test for everyone; recommendation stored beside the decision (#13) |
+| Suggestion vs decision (3) | `cyft_decide` only proposes; `cyft_confirm` or `cyft sort` decides (#13) |
+| Shared `.tmp` writes (2.4) | Per-writer temp files (#9) |
+| Lost concurrent updates (2.4) | Per-store lock around every read-modify-write (#14) |
+| URL case handling (3) | Host-only lowercasing (#10) |
+| Dedup loses provenance (3) | `sources` list per item (#14) |
+| Digest watermark (3) | Decision counter; read-only `cyft_digest` plus `cyft_digest_mark` (#14) |
+| Tool hints (4) | `readOnlyHint`/`destructiveHint`/`openWorldHint` on every tool (#14) |
+| Image size (3) | 4 MB inline cap, 50 MB intake cap, limits stated (#14) |
+| Local paths over a network (2.4) | `network=True` tool surface: links and pasted text only (#14) |
+
+Still open, and deliberately not built until Chris decides (see section 6):
+- The hosted adapter: streamable HTTP `/mcp`, OAuth token validation, a store per user chosen from the validated token, and `fileParams` downloads with an SSRF guard. It needs an IdP, hosting, a retention rule (Q5, Q6) and the OpenAI file-download hosts recorded from real traffic.
+- `utm_*` tracking variants still do not merge. `find_by_hash` still scans every item.
+
 ## 1. What the code actually does
 
 `python -m unittest discover -s tests`: **78 tests, all pass.**
