@@ -23,7 +23,11 @@
           "Sort this saved idea into act, test, watch, reference, or reject."
         ],
         "logo": "./assets/icon.png",
-        "composerIcon": "./assets/icon.png"
+        "composerIcon": "./assets/icon.png",
+        "websiteURL": "https://chrisbrockllc.com/plugins",
+        "supportURL": "https://chrisbrockllc.com/plugins/support",
+        "privacyPolicyURL": "https://chrisbrockllc.com/plugins/privacy",
+        "termsOfServiceURL": "https://chrisbrockllc.com/plugins/terms"
       },
       "review": {
         "prompts": [
