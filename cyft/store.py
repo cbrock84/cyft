@@ -15,9 +15,11 @@ import errno
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import threading
 import time
+import zipfile
 
 try:
     import fcntl
@@ -193,6 +195,85 @@ def hash_bytes(data):
 def new_id(digest):
     """Short, stable, derived from content so a re-add lands on the same id."""
     return digest[:12]
+
+
+# Files that belong to the user. config.json is a setting, not their data, and
+# names the environment variable that holds a key; .lock is bookkeeping.
+USER_FILES = (PROFILE, STATE)
+USER_DIRS = (ITEMS, DIGESTS)
+
+
+def _inside(path, root):
+    path, root = os.path.realpath(path), os.path.realpath(root)
+    return path == root or path.startswith(root + os.sep)
+
+
+def _raise(exc):
+    # os.walk skips folders it cannot list unless told otherwise. An export
+    # that silently leaves items out is worse than one that fails.
+    raise exc
+
+
+def export(root, dest):
+    """Write everything the user put in, and everything decided, to one zip."""
+    if _inside(dest, root):
+        raise ValueError("export must be written outside the run store")
+    with locked(root):
+        # O_EXCL fails on an existing file, so on any error the file is ours to
+        # remove. 0600 matches the records it copies; the umask cannot widen it.
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                     getattr(os, "O_BINARY", 0), 0o600)
+        try:
+            with os.fdopen(fd, "wb") as fh, zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as zf:
+                for name in USER_FILES:
+                    path = os.path.join(root, name)
+                    if os.path.isfile(path) and not os.path.islink(path):
+                        zf.write(path, name)
+                for sub in USER_DIRS:
+                    top = os.path.join(root, sub)
+                    if os.path.islink(top):              # os.walk follows a linked top
+                        continue
+                    for base, dirs, files in os.walk(top, onerror=_raise):
+                        dirs.sort()
+                        for name in sorted(files):
+                            path = os.path.join(base, name)
+                            if name.startswith(".") or os.path.islink(path):
+                                continue
+                            zf.write(path, os.path.relpath(path, root).replace(os.sep, "/"))
+        except BaseException:
+            os.unlink(dest)
+            raise
+    return dest
+
+
+def forget(root):
+    """Delete every item, digest, the profile and the state. Settings stay."""
+    with locked(root):
+        for sub in USER_DIRS:
+            path = os.path.join(root, sub)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+        for name in USER_FILES:
+            path = os.path.join(root, name)
+            if os.path.exists(path):
+                os.unlink(path)
+        ensure(root)
+
+
+def user_root(base, subject, issuer=""):
+    """One store per signed-in user, named by a hash so no subject reaches a path.
+
+    The issuer is part of the hash: two identity providers can issue the same
+    subject string for different people.
+    """
+    if not isinstance(subject, str) or not subject:
+        raise ValueError("a user root needs a non-empty subject")
+    if not isinstance(issuer, str):
+        raise ValueError("issuer must be a string")
+    # JSON quotes each claim, so no character inside one can stand in for the
+    # boundary between them, and its ASCII output encodes any string.
+    key = hashlib.sha256(json.dumps(["cyft-user-v1", issuer, subject]).encode("ascii"))
+    return os.path.join(os.path.abspath(base), "users", key.hexdigest()[:32])
 
 
 def now():
