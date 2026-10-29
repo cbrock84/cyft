@@ -199,7 +199,13 @@ def verified_evidence(entry, today=None):
 
 def read_item(root, cfg, item, provider=None):
     provider = provider or get_provider(cfg)
-    raw = provider.complete(SYSTEM, blocks_for(root, item), SCHEMA,
+    # The caller's list was read before any of it was sent. An item deleted
+    # since, by cyft forget, must not reach the provider.
+    with store.locked(root):
+        if store.read_json(store.item_path(root, item["id"])) is None:
+            return None
+        blocks = blocks_for(root, item)
+    raw = provider.complete(SYSTEM, blocks, SCHEMA,
                             int(cfg.get("max_output_tokens", 2000)))
     reading = parse_reading(raw)
     # The provider call can take a while, and the store is not locked during it.

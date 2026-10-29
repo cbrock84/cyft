@@ -114,6 +114,26 @@ class ExportAndForget(unittest.TestCase):
         self.assertEqual(store.list_items(root), [])
         self.assertFalse(os.path.exists(store.item_dir(root, item["id"])))
 
+    def test_items_forgotten_mid_run_are_never_sent_to_the_provider(self):
+        intake.add_text(self.root, "a second private note", "two")
+        root, sent = self.root, []
+
+        class Provider(object):
+            def describe(self):
+                return "stub"
+
+            def complete(self, system, blocks, *args):
+                sent.append(json.dumps(blocks))
+                store.forget(root)                 # forget lands during the first call
+                return '{"what": "A thing", "claims": []}'
+
+        from cyft import providers
+        with mock.patch.object(providers, "get", return_value=Provider()), \
+                mock.patch.object(cli, "out"), mock.patch.object(cli, "err"):
+            cli.main(["--root", root, "read"])
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(store.list_items(root), [])
+
     def test_cli_forget_needs_yes(self):
         with mock.patch.object(cli, "err"), mock.patch.object(cli, "out"):
             code = cli.main(["--root", self.root, "forget"])
