@@ -44,6 +44,25 @@ class ExportAndForget(unittest.TestCase):
             self.assertNotIn(".lock", names)
             self.assertEqual(json.loads(zf.read("profile.json")), PROFILE)
 
+    def test_failed_export_leaves_no_partial_zip(self):
+        dest = os.path.join(self.tmp, "broken.zip")
+        with mock.patch.object(zipfile.ZipFile, "write", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                store.export(self.root, dest)
+        self.assertFalse(os.path.exists(dest))
+
+    def test_export_does_not_follow_a_symlinked_folder_out_of_the_store(self):
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "secret.txt"), "w") as fh:
+            fh.write("not the user's")
+        shutil.rmtree(os.path.join(self.root, store.DIGESTS))
+        os.symlink(outside, os.path.join(self.root, store.DIGESTS))
+        dest = os.path.join(self.tmp, "out.zip")
+        store.export(self.root, dest)
+        with zipfile.ZipFile(dest) as zf:
+            self.assertFalse(any("secret" in n for n in zf.namelist()))
+
     def test_export_refuses_to_write_inside_the_store(self):
         with self.assertRaises(ValueError):
             store.export(self.root, os.path.join(self.root, "items", "x.zip"))
@@ -101,6 +120,13 @@ class UserRoot(unittest.TestCase):
     def test_issuer_separates_identical_subjects(self):
         self.assertNotEqual(store.user_root(self.base, "u1", issuer="https://a"),
                             store.user_root(self.base, "u1", issuer="https://b"))
+
+    def test_separator_inside_a_claim_cannot_collide_two_users(self):
+        self.assertNotEqual(store.user_root(self.base, "c", issuer="a\0b"),
+                            store.user_root(self.base, "b\0c", issuer="a"))
+
+    def test_unpaired_surrogate_subject_still_gets_a_root(self):
+        self.assertTrue(store.user_root(self.base, "u\ud800"))
 
     def test_empty_or_non_string_subject_is_refused(self):
         for bad in ("", None, 5, b"u1"):

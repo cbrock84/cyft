@@ -213,21 +213,28 @@ def export(root, dest):
     if _inside(dest, root):
         raise ValueError("export must be written outside the run store")
     with locked(root):
-        with zipfile.ZipFile(dest, "x", zipfile.ZIP_DEFLATED) as zf:
-            for name in USER_FILES:
-                path = os.path.join(root, name)
-                if os.path.isfile(path):
-                    zf.write(path, name)
-            for sub in USER_DIRS:
-                for base, dirs, files in os.walk(os.path.join(root, sub)):
-                    dirs.sort()
-                    for name in sorted(files):
-                        if name.startswith("."):
-                            continue
-                        path = os.path.join(base, name)
-                        if os.path.islink(path):
-                            continue
-                        zf.write(path, os.path.relpath(path, root).replace(os.sep, "/"))
+        # "x" fails on an existing file, so on any error the file is ours to remove.
+        zf = zipfile.ZipFile(dest, "x", zipfile.ZIP_DEFLATED)
+        try:
+            with zf:
+                for name in USER_FILES:
+                    path = os.path.join(root, name)
+                    if os.path.isfile(path) and not os.path.islink(path):
+                        zf.write(path, name)
+                for sub in USER_DIRS:
+                    top = os.path.join(root, sub)
+                    if os.path.islink(top):              # os.walk follows a linked top
+                        continue
+                    for base, dirs, files in os.walk(top):
+                        dirs.sort()
+                        for name in sorted(files):
+                            path = os.path.join(base, name)
+                            if name.startswith(".") or os.path.islink(path):
+                                continue
+                            zf.write(path, os.path.relpath(path, root).replace(os.sep, "/"))
+        except BaseException:
+            os.unlink(dest)
+            raise
     return dest
 
 
@@ -255,7 +262,9 @@ def user_root(base, subject, issuer=""):
         raise ValueError("a user root needs a non-empty subject")
     if not isinstance(issuer, str):
         raise ValueError("issuer must be a string")
-    key = hashlib.sha256(("cyft-user-v1\0%s\0%s" % (issuer, subject)).encode("utf-8"))
+    # JSON quotes each claim, so no character inside one can stand in for the
+    # boundary between them, and its ASCII output encodes any string.
+    key = hashlib.sha256(json.dumps(["cyft-user-v1", issuer, subject]).encode("ascii"))
     return os.path.join(os.path.abspath(base), "users", key.hexdigest()[:32])
 
 
