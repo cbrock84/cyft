@@ -208,15 +208,23 @@ def _inside(path, root):
     return path == root or path.startswith(root + os.sep)
 
 
+def _raise(exc):
+    # os.walk skips folders it cannot list unless told otherwise. An export
+    # that silently leaves items out is worse than one that fails.
+    raise exc
+
+
 def export(root, dest):
     """Write everything the user put in, and everything decided, to one zip."""
     if _inside(dest, root):
         raise ValueError("export must be written outside the run store")
     with locked(root):
-        # "x" fails on an existing file, so on any error the file is ours to remove.
-        zf = zipfile.ZipFile(dest, "x", zipfile.ZIP_DEFLATED)
+        # O_EXCL fails on an existing file, so on any error the file is ours to
+        # remove. 0600 matches the records it copies; the umask cannot widen it.
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL |
+                     getattr(os, "O_BINARY", 0), 0o600)
         try:
-            with zf:
+            with os.fdopen(fd, "wb") as fh, zipfile.ZipFile(fh, "w", zipfile.ZIP_DEFLATED) as zf:
                 for name in USER_FILES:
                     path = os.path.join(root, name)
                     if os.path.isfile(path) and not os.path.islink(path):
@@ -225,7 +233,7 @@ def export(root, dest):
                     top = os.path.join(root, sub)
                     if os.path.islink(top):              # os.walk follows a linked top
                         continue
-                    for base, dirs, files in os.walk(top):
+                    for base, dirs, files in os.walk(top, onerror=_raise):
                         dirs.sort()
                         for name in sorted(files):
                             path = os.path.join(base, name)

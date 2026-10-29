@@ -63,6 +63,31 @@ class ExportAndForget(unittest.TestCase):
         with zipfile.ZipFile(dest) as zf:
             self.assertFalse(any("secret" in n for n in zf.namelist()))
 
+    def test_unreadable_folder_fails_the_export_rather_than_dropping_items(self):
+        real = os.scandir
+        items = os.path.join(self.root, store.ITEMS)
+
+        def scandir(path="."):
+            if os.path.realpath(path).startswith(os.path.realpath(items) + os.sep):
+                raise PermissionError(13, "Permission denied", path)
+            return real(path)
+
+        dest = os.path.join(self.tmp, "partial.zip")
+        with mock.patch("os.scandir", scandir):
+            with self.assertRaises(OSError):
+                store.export(self.root, dest)
+        self.assertFalse(os.path.exists(dest))
+
+    @unittest.skipIf(os.name == "nt", "POSIX modes")
+    def test_export_is_readable_only_by_its_owner(self):
+        dest = os.path.join(self.tmp, "private.zip")
+        old = os.umask(0o022)
+        try:
+            store.export(self.root, dest)
+        finally:
+            os.umask(old)
+        self.assertEqual(os.stat(dest).st_mode & 0o777, 0o600)
+
     def test_export_refuses_to_write_inside_the_store(self):
         with self.assertRaises(ValueError):
             store.export(self.root, os.path.join(self.root, "items", "x.zip"))

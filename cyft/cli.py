@@ -371,8 +371,8 @@ def cmd_export(args):
         return 2
     try:
         store.export(root, dest)
-    except ValueError as exc:
-        err(str(exc))
+    except (ValueError, OSError) as exc:
+        err("Export failed, nothing was written: %s" % exc)
         return 2
     out("Exported to %s" % dest)
     return 0
