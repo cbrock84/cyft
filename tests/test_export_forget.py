@@ -75,6 +75,20 @@ class ExportAndForget(unittest.TestCase):
         self.assertEqual(os.listdir(os.path.join(self.root, store.DIGESTS)), [])
         self.assertTrue(os.path.exists(os.path.join(self.root, "config.json")))
 
+    def test_reading_that_finishes_after_forget_does_not_restore_the_item(self):
+        from cyft import reading
+        item = store.list_items(self.root)[0]
+        root = self.root
+
+        class Provider(object):
+            def complete(self, *args):
+                store.forget(root)                 # forget lands mid-reading
+                return '{"what": "A thing", "claims": []}'
+
+        self.assertIsNone(reading.read_item(root, {}, dict(item), provider=Provider()))
+        self.assertEqual(store.list_items(root), [])
+        self.assertFalse(os.path.exists(store.item_dir(root, item["id"])))
+
     def test_cli_forget_needs_yes(self):
         with mock.patch.object(cli, "err"), mock.patch.object(cli, "out"):
             code = cli.main(["--root", self.root, "forget"])

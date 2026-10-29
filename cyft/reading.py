@@ -205,8 +205,11 @@ def read_item(root, cfg, item, provider=None):
     # The provider call can take a while, and the store is not locked during it.
     # Apply the reading to the item as it is now, so a proposal or decision made
     # meanwhile through MCP is kept rather than overwritten by a stale copy.
+    # An item deleted meanwhile, by cyft forget, stays deleted.
     with store.locked(root):
-        current = store.read_json(store.item_path(root, item["id"])) or item
+        current = store.read_json(store.item_path(root, item["id"]))
+        if current is None:
+            return None
         current["what"] = reading["what"] or current.get("what", "")
         current["claims"] = reading["claims"]
         if current.get("status") in (None, "", "new", "read"):

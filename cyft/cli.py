@@ -195,10 +195,13 @@ def cmd_read(args):
     for item in items:
         label = item.get("name") or item["id"]
         try:
-            reading.read_item(root, cfg, item, provider=provider)
+            done = reading.read_item(root, cfg, item, provider=provider)
         except Exception as exc:
             failed += 1
             err("  %-40s %s" % (label[:40], exc))
+            continue
+        if done is None:
+            out("  %-40s deleted while it was being read" % label[:40])
             continue
         ok += 1
         out("  %-40s %s" % (label[:40], (item.get("what") or "")[:60]))
